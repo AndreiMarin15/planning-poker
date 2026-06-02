@@ -19,6 +19,7 @@ import { toast } from 'sonner'
 import { Copy, Check, Eye, RotateCcw, LogOut, ChevronDown, Plus, X, Play, Link2, ExternalLink } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { extractJiraTicket, isJiraUrl } from '@/lib/jira'
+import { AvatarImg, AvatarPicker, DEFAULT_AVATAR, type AvatarStyleId } from '@/components/avatar'
 
 // ── Cookie session helpers ────────────────────────────────────────────────────
 // Keyed per room so multiple rooms work in the same browser.
@@ -80,8 +81,8 @@ const VOTED_STYLE: React.CSSProperties = {
   ].join(', '),
 }
 
-function TableCard({ name, voted, revealed, value, isMe }: {
-  name: string; voted: boolean; revealed: boolean; value?: string; isMe: boolean
+function TableCard({ name, avatarStyle, voted, revealed, value, isMe }: {
+  name: string; avatarStyle?: string; voted: boolean; revealed: boolean; value?: string; isMe: boolean
 }) {
   return (
     <div className="flex flex-col items-center gap-2">
@@ -100,9 +101,12 @@ function TableCard({ name, voted, revealed, value, isMe }: {
           </div>
         )}
       </div>
-      <span className={cn('text-[13px] font-semibold leading-none', isMe ? 'text-violet-300' : 'text-zinc-200')}>
-        {name}
-      </span>
+      <div className="flex flex-col items-center gap-1">
+        <AvatarImg name={name} style={avatarStyle} size={28} isMe={isMe} />
+        <span className={cn('text-[12px] font-semibold leading-none', isMe ? 'text-violet-300' : 'text-zinc-300')}>
+          {name}
+        </span>
+      </div>
     </div>
   )
 }
@@ -200,6 +204,7 @@ export function RoomView({ roomId }: { roomId: string }) {
   const [participantId, setParticipantId] = useState<string | null>(null)
   const [showJoinDialog, setShowJoinDialog] = useState(false)
   const [joinName, setJoinName] = useState('')
+  const [joinAvatar, setJoinAvatar] = useState<AvatarStyleId>(DEFAULT_AVATAR)
   const [joining, setJoining] = useState(false)
   const [copied, setCopied] = useState(false)
 
@@ -298,7 +303,7 @@ export function RoomView({ roomId }: { roomId: string }) {
     try {
       const res = await fetch(`/api/rooms/${roomId}/join`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: joinName.trim() }),
+        body: JSON.stringify({ name: joinName.trim(), avatarStyle: joinAvatar }),
       })
       if (!res.ok) { toast.error('Room not found'); router.push('/'); return }
       const { participantId: pid, room: r } = await res.json()
@@ -434,7 +439,7 @@ export function RoomView({ roomId }: { roomId: string }) {
 
   const renderSeat = (p: Participant) => (
     <TableCard
-      key={p.id} name={p.name}
+      key={p.id} name={p.name} avatarStyle={p.avatarStyle}
       voted={!!room?.votes[p.id]} revealed={room?.phase === 'revealed'}
       value={room?.votes[p.id]} isMe={p.id === participantId}
     />
@@ -468,6 +473,12 @@ export function RoomView({ roomId }: { roomId: string }) {
                 style={{ backgroundColor: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.1)' }}
                 autoFocus
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-[11px] font-semibold text-zinc-500 uppercase tracking-widest">
+                Avatar <span className="text-zinc-700 normal-case font-normal tracking-normal">(opt.)</span>
+              </Label>
+              <AvatarPicker name={joinName} value={joinAvatar} onChange={setJoinAvatar} />
             </div>
             <Button onClick={handleJoin} disabled={!joinName.trim() || joining}
               className="w-full bg-violet-600 hover:bg-violet-500 text-white h-10 text-sm font-semibold">

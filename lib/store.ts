@@ -41,10 +41,11 @@ export const store = {
     roomName: string,
     creatorName: string,
     initialTopics: Array<{ title: string; jiraTicket?: string; jiraLink?: string }> = [],
+    creatorAvatarStyle?: string,
   ): { room: Room; participantId: string } {
     const roomId = randomId()
     const participantId = crypto.randomUUID()
-    const participant: Participant = { id: participantId, name: creatorName }
+    const participant: Participant = { id: participantId, name: creatorName, avatarStyle: creatorAvatarStyle }
 
     const topics: Topic[] = initialTopics.map((t) => ({
       id: crypto.randomUUID(),
@@ -83,14 +84,28 @@ export const store = {
     return { room, participantId }
   },
 
-  joinRoom(roomId: string, name: string): { room: Room; participantId: string } | null {
+  joinRoom(roomId: string, name: string, avatarStyle?: string): { room: Room; participantId: string } | null {
     const id = roomId.toUpperCase()
     const room = rooms.get(id)
     if (!room) return null
     const existing = room.participants.find((p) => p.name.toLowerCase() === name.toLowerCase())
-    if (existing) return { room, participantId: existing.id }
+    if (existing) {
+      // Rejoin: update avatar style if it changed
+      if (avatarStyle && avatarStyle !== existing.avatarStyle) {
+        const updated: Room = {
+          ...room,
+          participants: room.participants.map((p) =>
+            p.id === existing.id ? { ...p, avatarStyle } : p,
+          ),
+        }
+        rooms.set(id, updated)
+        broadcast(id, updated)
+        return { room: updated, participantId: existing.id }
+      }
+      return { room, participantId: existing.id }
+    }
     const participantId = crypto.randomUUID()
-    const participant: Participant = { id: participantId, name }
+    const participant: Participant = { id: participantId, name, avatarStyle }
     const updated: Room = { ...room, participants: [...room.participants, participant] }
     rooms.set(id, updated)
     broadcast(id, updated)
