@@ -16,7 +16,7 @@ export function PokerCard({ value, selected, revealed, onClick, disabled }: Poke
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'relative w-[3.75rem] h-[5.25rem] rounded-2xl flex flex-col items-center justify-center',
+        'relative w-14 h-[4.75rem] sm:w-[3.75rem] sm:h-[5.25rem] rounded-xl sm:rounded-2xl flex flex-col items-center justify-center',
         'border-2 font-bold select-none transition-all duration-150',
         'focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500',
         selected
@@ -30,7 +30,7 @@ export function PokerCard({ value, selected, revealed, onClick, disabled }: Poke
       <span className="absolute top-1.5 left-2 text-[9px] font-semibold opacity-40 leading-none tabular-nums">
         {value}
       </span>
-      <span className="text-2xl font-bold tabular-nums">{value}</span>
+      <span className="text-xl sm:text-2xl font-bold tabular-nums">{value}</span>
       <span className="absolute bottom-1.5 right-2 text-[9px] font-semibold opacity-40 leading-none rotate-180 tabular-nums">
         {value}
       </span>

@@ -496,7 +496,7 @@ export function RoomView({ roomId }: { roomId: string }) {
 
   if (roomGone) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-6 text-center px-6" style={{ backgroundColor: '#0f1929' }}>
+      <div className="min-h-dvh flex flex-col items-center justify-center gap-6 text-center px-6" style={{ backgroundColor: '#0f1929' }}>
         <div className="space-y-2">
           <p className="text-zinc-200 font-semibold">Room not found</p>
           <p className="text-zinc-600 text-sm max-w-xs">
@@ -512,7 +512,7 @@ export function RoomView({ roomId }: { roomId: string }) {
 
   if (!room && !showJoinDialog) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-3" style={{ backgroundColor: '#0f1929' }}>
+      <div className="min-h-dvh flex flex-col items-center justify-center gap-3" style={{ backgroundColor: '#0f1929' }}>
         <div className="w-5 h-5 rounded-full border-2 border-zinc-700 border-t-violet-500 animate-spin" />
         <span className="text-zinc-600 text-sm">Connecting...</span>
       </div>
@@ -539,7 +539,7 @@ export function RoomView({ roomId }: { roomId: string }) {
   )
 
   return (
-    <div className="min-h-screen flex flex-col text-white" style={{ backgroundColor: '#0f1929' }}>
+    <div className="min-h-dvh flex flex-col text-white" style={{ backgroundColor: '#0f1929' }}>
 
       {/* ── Flying emoji overlay ─────────────────────────────────── */}
       <AnimatePresence>
@@ -652,26 +652,26 @@ export function RoomView({ roomId }: { roomId: string }) {
               <span className="font-mono text-xs tracking-widest">{roomId}</span>
             </button>
           </div>
-          <button onClick={handleLeave} className="flex items-center gap-1.5 text-zinc-600 hover:text-zinc-300 text-xs transition-colors">
+          <button onClick={handleLeave} className="flex items-center gap-1.5 text-zinc-600 hover:text-zinc-300 text-xs transition-colors py-2 px-1 -mr-1">
             Leave <LogOut className="w-3.5 h-3.5" />
           </button>
         </div>
       </header>
 
       {/* ── Main ─────────────────────────────────────────────────── */}
-      <main className="flex-1 flex flex-col items-center justify-between px-5 pt-6 pb-8 gap-6 max-w-4xl mx-auto w-full">
+      <main className="flex-1 flex flex-col items-center px-3 sm:px-5 pt-4 sm:pt-6 pb-6 sm:pb-8 gap-4 sm:gap-6 max-w-4xl mx-auto w-full overflow-y-auto">
 
         {/* ── Poker table ──────────────────────────────────────── */}
-        <div className="flex-1 flex flex-col items-center justify-center w-full min-h-0">
+        <div className="w-full flex flex-col items-center justify-center py-2 sm:py-0 sm:flex-1 sm:min-h-0">
           {seats.top.length > 0 && (
-            <div className="flex items-end gap-7 justify-center pb-8">{seats.top.map(renderSeat)}</div>
+            <div className="flex items-end gap-4 sm:gap-7 justify-center pb-4 sm:pb-8">{seats.top.map(renderSeat)}</div>
           )}
-          <div className="flex items-center justify-center gap-8 w-full">
-            {seats.left.length > 0 && <div className="flex flex-col gap-7">{seats.left.map(renderSeat)}</div>}
+          <div className="flex items-center justify-center gap-4 sm:gap-8 w-full">
+            {seats.left.length > 0 && <div className="flex flex-col gap-4 sm:gap-7">{seats.left.map(renderSeat)}</div>}
 
             {/* Table */}
-            <div className="flex items-center justify-center rounded-[2.5rem] px-14 py-10 shrink-0"
-              style={{ minWidth: 250, minHeight: 135, backgroundColor: '#1a3050', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04), 0 10px 50px rgba(8,15,30,0.7)' }}>
+            <div className="flex items-center justify-center rounded-[2rem] sm:rounded-[2.5rem] px-8 sm:px-14 py-7 sm:py-10 shrink-0"
+              style={{ minWidth: 'min(200px, 50vw)', minHeight: 110, backgroundColor: '#1a3050', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04), 0 10px 50px rgba(8,15,30,0.7)' }}>
               {room?.phase === 'voting' ? (
                 <div className="text-center space-y-1.5">
                   <p className="text-zinc-300 text-sm font-medium">Voting in progress</p>
@@ -691,10 +691,10 @@ export function RoomView({ roomId }: { roomId: string }) {
               )}
             </div>
 
-            {seats.right.length > 0 && <div className="flex flex-col gap-7">{seats.right.map(renderSeat)}</div>}
+            {seats.right.length > 0 && <div className="flex flex-col gap-4 sm:gap-7">{seats.right.map(renderSeat)}</div>}
           </div>
           {seats.bottom.length > 0 && (
-            <div className="flex items-start gap-7 justify-center pt-8">{seats.bottom.map(renderSeat)}</div>
+            <div className="flex items-start gap-4 sm:gap-7 justify-center pt-4 sm:pt-8">{seats.bottom.map(renderSeat)}</div>
           )}
         </div>
 
@@ -702,42 +702,44 @@ export function RoomView({ roomId }: { roomId: string }) {
         <div className="w-full space-y-4 shrink-0">
 
           {/* Story row */}
-          <div className="space-y-1.5">
-            <div className="flex gap-2">
-              {/* Jira ticket # */}
-              <Input
-                placeholder="JIRA-123"
-                value={jiraTicket}
-                onChange={(e) => setJiraTicket(e.target.value.toUpperCase())}
-                onFocus={() => { storyFocusedRef.current = true }}
-                onBlur={handleStoryBlur}
-                onKeyDown={(e) => e.key === 'Enter' && storyRef.current?.focus()}
-                className="w-[7.5rem] h-10 text-xs font-mono uppercase tracking-wider text-blue-300 placeholder:text-zinc-700 focus-visible:ring-violet-500/50"
-                style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.08)' }}
-              />
-              {/* Story title */}
-              <Input
-                ref={storyRef}
-                placeholder="What are you estimating?"
-                value={story}
-                onChange={(e) => setStory(e.target.value)}
-                onFocus={() => { storyFocusedRef.current = true }}
-                onBlur={handleStoryBlur}
-                onKeyDown={(e) => e.key === 'Enter' && storyRef.current?.blur()}
-                className="flex-1 h-10 text-sm text-zinc-200 placeholder:text-zinc-700 focus-visible:ring-violet-500/50"
-                style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.08)' }}
-              />
+          <div className="space-y-2">
+            <div className="flex flex-col sm:flex-row gap-2">
+              <div className="flex gap-2 flex-1">
+                {/* Jira ticket # */}
+                <Input
+                  placeholder="JIRA-123"
+                  value={jiraTicket}
+                  onChange={(e) => setJiraTicket(e.target.value.toUpperCase())}
+                  onFocus={() => { storyFocusedRef.current = true }}
+                  onBlur={handleStoryBlur}
+                  onKeyDown={(e) => e.key === 'Enter' && storyRef.current?.focus()}
+                  className="w-24 sm:w-[7.5rem] h-11 text-xs font-mono uppercase tracking-wider text-blue-300 placeholder:text-zinc-700 focus-visible:ring-violet-500/50"
+                  style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.08)' }}
+                />
+                {/* Story title */}
+                <Input
+                  ref={storyRef}
+                  placeholder="What are you estimating?"
+                  value={story}
+                  onChange={(e) => setStory(e.target.value)}
+                  onFocus={() => { storyFocusedRef.current = true }}
+                  onBlur={handleStoryBlur}
+                  onKeyDown={(e) => e.key === 'Enter' && storyRef.current?.blur()}
+                  className="flex-1 h-11 text-sm text-zinc-200 placeholder:text-zinc-700 focus-visible:ring-violet-500/50"
+                  style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.08)' }}
+                />
+              </div>
               {/* Action */}
               {room?.phase === 'voting' ? (
                 <Button onClick={handleReveal} disabled={votedCount === 0}
-                  className="h-10 px-5 bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold shrink-0 gap-2">
+                  className="h-11 px-5 bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold sm:shrink-0 gap-2">
                   <Eye className="w-3.5 h-3.5" />
                   Reveal
                   {votedCount > 0 && <span className="font-mono text-violet-300 text-xs ml-0.5">{votedCount}/{totalCount}</span>}
                 </Button>
               ) : (
                 <Button onClick={handleReset} variant="ghost"
-                  className="h-10 px-5 text-zinc-400 hover:text-zinc-100 text-sm shrink-0 gap-2">
+                  className="h-11 px-5 text-zinc-400 hover:text-zinc-100 text-sm sm:shrink-0 gap-2">
                   <RotateCcw className="w-3.5 h-3.5" />
                   {room?.topics && room.topics.length > 0 ? 'Next' : 'New Round'}
                 </Button>
@@ -766,7 +768,7 @@ export function RoomView({ roomId }: { roomId: string }) {
 
           {/* Voting cards */}
           {room?.phase === 'voting' && participantId && (
-            <div className="flex flex-wrap justify-center gap-3">
+            <div className="flex flex-wrap justify-center gap-2 sm:gap-3">
               {CARD_VALUES.map((v) => (
                 <PokerCard key={v} value={v} selected={myVote === v} onClick={() => handleVote(v)} />
               ))}
