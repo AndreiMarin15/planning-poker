@@ -1,9 +1,11 @@
 'use client'
 
 import { useEffect, useState, useRef, useCallback } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useRouter } from 'next/navigation'
-import type { Room, Participant, HistoryEntry } from '@/lib/types'
-import { CARD_VALUES } from '@/lib/types'
+import type { Room, Participant, HistoryEntry, EmojiThrow } from '@/lib/types'
+import { CARD_VALUES, THROW_EMOJIS } from '@/lib/types'
+import EmojiPicker, { type EmojiClickData, Theme } from 'emoji-picker-react'
 import { PokerCard } from './poker-card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -81,11 +83,54 @@ const VOTED_STYLE: React.CSSProperties = {
   ].join(', '),
 }
 
-function TableCard({ name, avatarStyle, voted, revealed, value, isMe }: {
-  name: string; avatarStyle?: string; voted: boolean; revealed: boolean; value?: string; isMe: boolean
+function TableCard({
+  pid, name, avatarStyle, voted, revealed, value, isMe, canThrow, lastEmoji, onThrow,
+}: {
+  pid: string; name: string; avatarStyle?: string; voted: boolean; revealed: boolean
+  value?: string; isMe: boolean; canThrow: boolean; lastEmoji: string | null; onThrow?: (emoji: string) => void
 }) {
+  const [hovered, setHovered] = useState(false)
+
   return (
-    <div className="flex flex-col items-center gap-2">
+    <div
+      data-pid={pid}
+      className="flex flex-col items-center gap-2"
+      onMouseEnter={() => { if (canThrow) setHovered(true) }}
+      onMouseLeave={() => setHovered(false)}
+    >
+      {/* Quick emoji bar — in normal flow so the parent's hit area covers it */}
+      <div
+        className="flex items-center gap-px px-2 py-1.5 rounded-full z-30 transition-opacity duration-150"
+        style={{
+          backgroundColor: 'rgba(10,18,35,0.96)',
+          border: '1px solid rgba(255,255,255,0.11)',
+          opacity: hovered && canThrow ? 1 : 0,
+          pointerEvents: hovered && canThrow ? 'auto' : 'none',
+          visibility: canThrow ? 'visible' : 'hidden',
+        }}
+      >
+        {THROW_EMOJIS.slice(0, 8).map((e) => (
+          <button key={e} onClick={() => onThrow?.(e)}
+            className="text-[1rem] leading-none px-0.5 hover:scale-125 active:scale-90 transition-transform cursor-pointer">
+            {e}
+          </button>
+        ))}
+        {lastEmoji && !THROW_EMOJIS.slice(0, 8).includes(lastEmoji) && (
+          <>
+            <span className="w-px h-3.5 bg-white/10 mx-1" />
+            <button onClick={() => onThrow?.(lastEmoji)}
+              className="text-[1rem] leading-none px-0.5 hover:scale-125 active:scale-90 transition-transform cursor-pointer">
+              {lastEmoji}
+            </button>
+          </>
+        )}
+        <span className="w-px h-3.5 bg-white/10 mx-1" />
+        <button onClick={() => onThrow?.('__picker__')}
+          className="text-zinc-500 hover:text-zinc-200 text-[11px] font-semibold px-1 transition-colors">
+          ···
+        </button>
+      </div>
+
       <div
         className={cn(
           'w-11 h-[3.75rem] rounded-xl border relative overflow-hidden transition-all duration-300',
@@ -217,6 +262,14 @@ export function RoomView({ roomId }: { roomId: string }) {
   // Use a ref for focus tracking so connectSSE doesn't need it as a dep
   const storyFocusedRef = useRef(false)
 
+  // Emoji throwing
+  interface ActiveThrow { id: string; emoji: string; startX: number; startY: number; dx: number; dy: number }
+  const [activeThrows, setActiveThrows] = useState<ActiveThrow[]>([])
+  const [fullPickerTarget, setFullPickerTarget] = useState<Participant | null>(null)
+  const [lastEmoji, setLastEmoji] = useState<string | null>(() =>
+    typeof localStorage !== 'undefined' ? localStorage.getItem('pp_last_emoji') : null
+  )
+
   // Add-topic form
   const [showAddTopic, setShowAddTopic] = useState(false)
   const [newTopicJira, setNewTopicJira] = useState('')
@@ -257,6 +310,28 @@ export function RoomView({ roomId }: { roomId: string }) {
       }
       // readyState === CONNECTING: browser is already retrying — do nothing
     }
+
+    es.addEventListener('emoji', (e) => {
+      const data: EmojiThrow = JSON.parse((e as MessageEvent).data)
+      if (data.toId === pid) toast(`Someone threw ${data.emoji} at you!`, { duration: 2500 })
+      const toEl = document.querySelector<HTMLElement>(`[data-pid="${data.toId}"]`)
+      if (!toEl) return
+      const tr = toEl.getBoundingClientRect()
+      const fromSide = Math.random() < 0.5 ? 'left' : 'right'
+      const startX = fromSide === 'left'
+        ? Math.random() * 80
+        : window.innerWidth - Math.random() * 80
+      const startY = tr.top + tr.height / 2 + (Math.random() - 0.5) * window.innerHeight * 0.4
+      const targetX = tr.left + tr.width / 2
+      const targetY = tr.top + tr.height / 2
+      const t: ActiveThrow = {
+        id: data.id, emoji: data.emoji, startX, startY,
+        dx: targetX - startX,
+        dy: targetY - startY,
+      }
+      setActiveThrows((prev) => [...prev, t])
+      setTimeout(() => setActiveThrows((prev) => prev.filter((x) => x.id !== t.id)), 1400)
+    })
 
     esRef.current = es
   }, [roomId]) // stable — no storyFocused dep
@@ -404,6 +479,21 @@ export function RoomView({ roomId }: { roomId: string }) {
     })
   }
 
+  async function handleThrow(target: Participant, emoji: string) {
+    if (!participantId) return
+    setLastEmoji(emoji)
+    localStorage.setItem('pp_last_emoji', emoji)
+    await fetch(`/api/rooms/${roomId}/emoji`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fromId: participantId, fromName: '', toId: target.id, toName: target.name, emoji }),
+    })
+  }
+
+  function handleThrowOrPicker(target: Participant, emoji: string) {
+    if (emoji === '__picker__') { setFullPickerTarget(target) }
+    else { handleThrow(target, emoji) }
+  }
+
   if (roomGone) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-6 text-center px-6" style={{ backgroundColor: '#0f1929' }}>
@@ -439,14 +529,73 @@ export function RoomView({ roomId }: { roomId: string }) {
 
   const renderSeat = (p: Participant) => (
     <TableCard
-      key={p.id} name={p.name} avatarStyle={p.avatarStyle}
+      key={p.id} pid={p.id} name={p.name} avatarStyle={p.avatarStyle}
       voted={!!room?.votes[p.id]} revealed={room?.phase === 'revealed'}
       value={room?.votes[p.id]} isMe={p.id === participantId}
+      canThrow={!!participantId && p.id !== participantId}
+      lastEmoji={lastEmoji}
+      onThrow={(emoji) => handleThrowOrPicker(p, emoji)}
     />
   )
 
   return (
     <div className="min-h-screen flex flex-col text-white" style={{ backgroundColor: '#0f1929' }}>
+
+      {/* ── Flying emoji overlay ─────────────────────────────────── */}
+      <AnimatePresence>
+        {activeThrows.map((t) => {
+          const arc = -Math.min(Math.abs(t.dy) * 0.4 + 60, 160)
+          return (
+            <motion.div
+              key={t.id}
+              initial={{ x: t.startX, y: t.startY, scale: 0.6, opacity: 0, rotate: 0 }}
+              animate={{
+                x: [t.startX, t.startX + t.dx * 0.75, t.startX + t.dx, t.startX + t.dx],
+                y: [t.startY, t.startY + t.dy * 0.75 + arc, t.startY + t.dy, t.startY + t.dy],
+                scale: [0.6, 1.4, 2, 0],
+                opacity: [0, 1, 1, 0],
+                rotate: [0, 20, 5, 0],
+              }}
+              transition={{ duration: 1.3, ease: [0.25, 0.46, 0.45, 0.94], times: [0, 0.55, 0.82, 1] }}
+              style={{
+                position: 'fixed',
+                left: 0,
+                top: 0,
+                translateX: '-50%',
+                translateY: '-50%',
+                fontSize: '2rem',
+                zIndex: 9999,
+                pointerEvents: 'none',
+                userSelect: 'none',
+                lineHeight: 1,
+              }}
+            >
+              {t.emoji}
+            </motion.div>
+          )
+        })}
+      </AnimatePresence>
+
+      {/* ── Full emoji picker overlay ─────────────────────────────── */}
+      {fullPickerTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ backgroundColor: 'rgba(0,0,0,0.55)' }}
+          onClick={() => setFullPickerTarget(null)}
+        >
+          <div onClick={(e) => e.stopPropagation()}>
+            <EmojiPicker
+              theme={Theme.DARK}
+              height={380}
+              width={320}
+              onEmojiClick={(data: EmojiClickData) => {
+                handleThrow(fullPickerTarget, data.emoji)
+                setFullPickerTarget(null)
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* ── Join dialog ──────────────────────────────────────────── */}
       <Dialog open={showJoinDialog} onOpenChange={() => {}}>

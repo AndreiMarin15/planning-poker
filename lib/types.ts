@@ -38,4 +38,14 @@ export interface Room {
   createdAt: number
 }
 
+export interface EmojiThrow {
+  id: string
+  fromId: string
+  fromName: string
+  toId: string
+  toName: string
+  emoji: string
+}
+
 export const CARD_VALUES = ['0', '1', '2', '3', '5', '8', '13', '21', '?', '☕']
+export const THROW_EMOJIS = ['🎉', '🔥', '💩', '👀', '❤️', '👏', '💀', '🤡', '🚀', '😤', '😂', '🎯']

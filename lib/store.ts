@@ -1,9 +1,11 @@
 import { EventEmitter } from 'events'
-import type { Room, Participant, Topic, HistoryEntry } from './types'
+import type { Room, Participant, Topic, HistoryEntry, EmojiThrow } from './types'
 
 const rooms = new Map<string, Room>()
 const emitter = new EventEmitter()
 emitter.setMaxListeners(500)
+const emojiEmitter = new EventEmitter()
+emojiEmitter.setMaxListeners(500)
 
 function randomId(length = 6): string {
   const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
@@ -244,5 +246,15 @@ export const store = {
     const id = roomId.toUpperCase()
     emitter.on(id, callback)
     return () => emitter.off(id, callback)
+  },
+
+  throwEmoji(roomId: string, event: EmojiThrow): void {
+    emojiEmitter.emit(roomId.toUpperCase(), event)
+  },
+
+  subscribeEmoji(roomId: string, callback: (event: EmojiThrow) => void): () => void {
+    const id = roomId.toUpperCase()
+    emojiEmitter.on(id, callback)
+    return () => emojiEmitter.off(id, callback)
   },
 }
