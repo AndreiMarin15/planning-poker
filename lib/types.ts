@@ -3,12 +3,32 @@ export interface Participant {
   name: string
 }
 
+export interface Topic {
+  id: string
+  title: string
+  jiraTicket?: string
+}
+
+export interface HistoryEntry {
+  id: string
+  story: string
+  jiraTicket?: string
+  votes: Record<string, string>
+  participantNames: Record<string, string>
+  consensus: string | null
+  average: string
+  completedAt: number
+}
+
 export interface Room {
   id: string
   name: string
   story: string
+  jiraTicket?: string
+  topics: Topic[]
+  history: HistoryEntry[]
   participants: Participant[]
-  votes: Record<string, string> // participantId -> card value
+  votes: Record<string, string>
   phase: 'voting' | 'revealed'
   moderatorId: string
   createdAt: number

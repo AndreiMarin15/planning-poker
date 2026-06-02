@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import type { Room, Participant } from '@/lib/types'
+import type { Room, Participant, HistoryEntry } from '@/lib/types'
 import { CARD_VALUES } from '@/lib/types'
 import { PokerCard } from './poker-card'
 import { Button } from '@/components/ui/button'
@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
-import { Copy, Check, Eye, RotateCcw, LogOut } from 'lucide-react'
+import { Copy, Check, Eye, RotateCcw, LogOut, ChevronDown, Plus, X, Play, Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -32,7 +32,6 @@ function calcConsensus(votes: string[]): string | null {
   return new Set(votes).size === 1 ? votes[0] : null
 }
 
-// Distribute N participants around the table
 function distributeSeats(ps: Participant[]) {
   const n = ps.length
   if (n <= 1) return { top: [] as Participant[], left: [], right: [], bottom: ps }
@@ -43,7 +42,6 @@ function distributeSeats(ps: Participant[]) {
   if (n <= 6) {
     return { top: ps.slice(0, 3), left: [], right: [], bottom: ps.slice(3) }
   }
-  // 7+ players: 3 top, side overflow, 3 bottom
   const top = ps.slice(0, 3)
   const bottom = ps.slice(n - 3)
   const mid = ps.slice(3, n - 3)
@@ -52,7 +50,6 @@ function distributeSeats(ps: Participant[]) {
 }
 
 // ── TableCard ─────────────────────────────────────────────────────────────────
-// Small face-down/face-up card shown for each player around the table
 
 const VOTED_STYLE: React.CSSProperties = {
   backgroundColor: '#2f6fd4',
@@ -62,18 +59,8 @@ const VOTED_STYLE: React.CSSProperties = {
   ].join(', '),
 }
 
-function TableCard({
-  name,
-  voted,
-  revealed,
-  value,
-  isMe,
-}: {
-  name: string
-  voted: boolean
-  revealed: boolean
-  value?: string
-  isMe: boolean
+function TableCard({ name, voted, revealed, value, isMe }: {
+  name: string; voted: boolean; revealed: boolean; value?: string; isMe: boolean
 }) {
   return (
     <div className="flex flex-col items-center gap-2">
@@ -84,25 +71,97 @@ function TableCard({
           voted && !revealed && 'border-blue-400/20',
           revealed && 'border-slate-500/30',
         )}
-        style={
-          revealed
-            ? { backgroundColor: '#1a2e4a' }
-            : voted
-            ? VOTED_STYLE
-            : { backgroundColor: 'rgba(82,82,91,0.45)' }
-        }
+        style={revealed ? { backgroundColor: '#1a2e4a' } : voted ? VOTED_STYLE : { backgroundColor: 'rgba(82,82,91,0.45)' }}
       >
         {revealed && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-white font-bold text-xl tabular-nums leading-none">
-              {value ?? '—'}
-            </span>
+            <span className="text-white font-bold text-xl tabular-nums leading-none">{value ?? '—'}</span>
           </div>
         )}
       </div>
       <span className={cn('text-[13px] font-semibold leading-none', isMe ? 'text-violet-300' : 'text-zinc-200')}>
         {name}
       </span>
+    </div>
+  )
+}
+
+// ── JiraBadge ─────────────────────────────────────────────────────────────────
+
+function JiraBadge({ ticket }: { ticket: string }) {
+  return (
+    <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold font-mono text-blue-300 bg-blue-500/15 border border-blue-500/20 shrink-0">
+      {ticket}
+    </span>
+  )
+}
+
+// ── CollapsiblePanel ──────────────────────────────────────────────────────────
+
+function CollapsiblePanel({
+  title, count, defaultOpen = false, children, action,
+}: {
+  title: string; count?: number; defaultOpen?: boolean; children: React.ReactNode; action?: React.ReactNode
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div
+      className="rounded-2xl overflow-hidden"
+      style={{ backgroundColor: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
+    >
+      <div className="flex items-center justify-between px-5 py-3.5">
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className="flex items-center gap-2 flex-1 text-left"
+        >
+          <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-widest">{title}</span>
+          {count != null && count > 0 && (
+            <span className="text-[10px] font-mono text-zinc-700 bg-zinc-800 px-1.5 py-0.5 rounded-full">{count}</span>
+          )}
+          <ChevronDown className={cn('w-3.5 h-3.5 text-zinc-700 transition-transform ml-auto', open && 'rotate-180')} />
+        </button>
+        {action && <div className="ml-3 shrink-0">{action}</div>}
+      </div>
+      {open && <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>{children}</div>}
+    </div>
+  )
+}
+
+// ── HistoryEntryRow ───────────────────────────────────────────────────────────
+
+function HistoryEntryRow({ entry }: { entry: HistoryEntry }) {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <div style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }} className="last:border-0">
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-center gap-3 px-5 py-3 text-left hover:bg-white/[0.02] transition-colors"
+      >
+        {entry.jiraTicket && <JiraBadge ticket={entry.jiraTicket} />}
+        <span className="text-sm text-zinc-400 flex-1 truncate min-w-0">{entry.story || 'Untitled'}</span>
+        <div className="flex items-center gap-2 shrink-0">
+          {entry.consensus ? (
+            <span className="text-emerald-400 text-sm font-bold tabular-nums">{entry.consensus}</span>
+          ) : (
+            <span className="text-zinc-500 text-xs tabular-nums">avg {entry.average}</span>
+          )}
+          <ChevronDown className={cn('w-3 h-3 text-zinc-700 transition-transform', expanded && 'rotate-180')} />
+        </div>
+      </button>
+      {expanded && (
+        <div className="px-5 pb-3 flex flex-wrap gap-1.5">
+          {Object.entries(entry.votes).map(([pid, vote]) => (
+            <span
+              key={pid}
+              className="text-[11px] text-zinc-500 px-2 py-1 rounded-md"
+              style={{ backgroundColor: 'rgba(255,255,255,0.05)' }}
+            >
+              {entry.participantNames[pid] ?? 'Unknown'}
+              <span className="text-zinc-200 font-semibold ml-1.5 tabular-nums">{vote}</span>
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -117,29 +176,37 @@ export function RoomView({ roomId }: { roomId: string }) {
   const [joinName, setJoinName] = useState('')
   const [joining, setJoining] = useState(false)
   const [copied, setCopied] = useState(false)
+
+  // Story / Jira ticket local state (mirrors room, editable)
   const [story, setStory] = useState('')
+  const [jiraTicket, setJiraTicket] = useState('')
   const [storyFocused, setStoryFocused] = useState(false)
+
+  // Add-topic form
+  const [showAddTopic, setShowAddTopic] = useState(false)
+  const [newTopicJira, setNewTopicJira] = useState('')
+  const [newTopicTitle, setNewTopicTitle] = useState('')
+
   const storyRef = useRef<HTMLInputElement>(null)
   const esRef = useRef<EventSource | null>(null)
 
   const myVote = room && participantId ? room.votes[participantId] : undefined
+  const isModerator = room && participantId ? room.moderatorId === participantId : false
 
-  const connectSSE = useCallback(
-    (pid: string) => {
-      if (esRef.current) esRef.current.close()
-      const es = new EventSource(`/api/rooms/${roomId}/events`)
-      es.onmessage = (e) => {
-        const data: Room = JSON.parse(e.data)
-        setRoom(data)
-        setStory((prev) => (storyFocused ? prev : data.story))
+  const connectSSE = useCallback((pid: string) => {
+    if (esRef.current) esRef.current.close()
+    const es = new EventSource(`/api/rooms/${roomId}/events`)
+    es.onmessage = (e) => {
+      const data: Room = JSON.parse(e.data)
+      setRoom(data)
+      if (!storyFocused) {
+        setStory(data.story)
+        setJiraTicket(data.jiraTicket ?? '')
       }
-      es.onerror = () => {
-        setTimeout(() => { if (esRef.current === es) connectSSE(pid) }, 2000)
-      }
-      esRef.current = es
-    },
-    [roomId, storyFocused],
-  )
+    }
+    es.onerror = () => { setTimeout(() => { if (esRef.current === es) connectSSE(pid) }, 2000) }
+    esRef.current = es
+  }, [roomId, storyFocused])
 
   useEffect(() => {
     const pid = localStorage.getItem(`pp_${roomId}_pid`)
@@ -150,8 +217,7 @@ export function RoomView({ roomId }: { roomId: string }) {
       const es = new EventSource(`/api/rooms/${roomId}/events`)
       es.onmessage = (e) => {
         const r: Room = JSON.parse(e.data)
-        setRoom(r)
-        setStory(r.story)
+        setRoom(r); setStory(r.story); setJiraTicket(r.jiraTicket ?? '')
       }
       es.onerror = () => setRoom(null)
       esRef.current = es
@@ -166,14 +232,13 @@ export function RoomView({ roomId }: { roomId: string }) {
     setJoining(true)
     try {
       const res = await fetch(`/api/rooms/${roomId}/join`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: joinName.trim() }),
       })
       if (!res.ok) { toast.error('Room not found'); router.push('/'); return }
       const { participantId: pid, room: r } = await res.json()
       localStorage.setItem(`pp_${roomId}_pid`, pid)
-      setParticipantId(pid); setRoom(r); setStory(r.story)
+      setParticipantId(pid); setRoom(r); setStory(r.story); setJiraTicket(r.jiraTicket ?? '')
       setShowJoinDialog(false); connectSSE(pid)
     } finally { setJoining(false) }
   }
@@ -182,8 +247,7 @@ export function RoomView({ roomId }: { roomId: string }) {
     if (!participantId || room?.phase !== 'voting') return
     setRoom((prev) => prev ? { ...prev, votes: { ...prev.votes, [participantId]: value } } : prev)
     await fetch(`/api/rooms/${roomId}/vote`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ participantId, value }),
     })
   }
@@ -193,31 +257,54 @@ export function RoomView({ roomId }: { roomId: string }) {
   }
 
   async function handleReset() {
-    await fetch(`/api/rooms/${roomId}/reset`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ story: '' }),
-    })
-    setStory('')
+    // Let the store auto-advance to next topic if one exists
+    const res = await fetch(`/api/rooms/${roomId}/reset`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+    const { room: r } = await res.json()
+    setStory(r.story)
+    setJiraTicket(r.jiraTicket ?? '')
   }
 
   async function handleStoryBlur() {
     setStoryFocused(false)
-    if (room && story !== room.story) {
+    if (!room) return
+    if (story !== room.story || jiraTicket !== (room.jiraTicket ?? '')) {
       await fetch(`/api/rooms/${roomId}/story`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ story }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ story, jiraTicket }),
       })
     }
+  }
+
+  async function handleStartTopic(topicId: string) {
+    const res = await fetch(`/api/rooms/${roomId}/topics/start`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ topicId }),
+    })
+    const { room: r } = await res.json()
+    setStory(r.story); setJiraTicket(r.jiraTicket ?? '')
+  }
+
+  async function handleRemoveTopic(topicId: string) {
+    await fetch(`/api/rooms/${roomId}/topics`, {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ topicId }),
+    })
+  }
+
+  async function handleAddTopic() {
+    if (!newTopicTitle.trim()) return
+    await fetch(`/api/rooms/${roomId}/topics`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: newTopicTitle.trim(), jiraTicket: newTopicJira.trim() }),
+    })
+    setNewTopicJira(''); setNewTopicTitle(''); setShowAddTopic(false)
   }
 
   function handleLeave() {
     localStorage.removeItem(`pp_${roomId}_pid`)
     if (participantId) {
       fetch(`/api/rooms/${roomId}/leave`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ participantId }),
       }).catch(() => {})
     }
@@ -226,8 +313,7 @@ export function RoomView({ roomId }: { roomId: string }) {
 
   function handleCopyCode() {
     navigator.clipboard.writeText(roomId).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      setCopied(true); setTimeout(() => setCopied(false), 2000)
     })
   }
 
@@ -241,21 +327,17 @@ export function RoomView({ roomId }: { roomId: string }) {
 
   const votedCount = room ? Object.keys(room.votes).length : 0
   const totalCount = room ? room.participants.length : 0
-  const revealedVotes =
-    room?.phase === 'revealed'
-      ? room.participants.map((p) => room.votes[p.id]).filter(Boolean)
-      : []
+  const revealedVotes = room?.phase === 'revealed'
+    ? room.participants.map((p) => room.votes[p.id]).filter(Boolean)
+    : []
   const consensus = calcConsensus(revealedVotes)
   const seats = room ? distributeSeats(room.participants) : { top: [], left: [], right: [], bottom: [] }
 
   const renderSeat = (p: Participant) => (
     <TableCard
-      key={p.id}
-      name={p.name}
-      voted={!!room?.votes[p.id]}
-      revealed={room?.phase === 'revealed'}
-      value={room?.votes[p.id]}
-      isMe={p.id === participantId}
+      key={p.id} name={p.name}
+      voted={!!room?.votes[p.id]} revealed={room?.phase === 'revealed'}
+      value={room?.votes[p.id]} isMe={p.id === participantId}
     />
   )
 
@@ -278,12 +360,9 @@ export function RoomView({ roomId }: { roomId: string }) {
           </DialogHeader>
           <div className="space-y-4 pt-1">
             <div className="space-y-1.5">
-              <Label className="text-[11px] font-semibold text-zinc-500 uppercase tracking-widest">
-                Your name
-              </Label>
+              <Label className="text-[11px] font-semibold text-zinc-500 uppercase tracking-widest">Your name</Label>
               <Input
-                placeholder="e.g. Alice"
-                value={joinName}
+                placeholder="e.g. Alice" value={joinName}
                 onChange={(e) => setJoinName(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleJoin()}
                 className="h-10 text-sm text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-violet-500"
@@ -291,11 +370,8 @@ export function RoomView({ roomId }: { roomId: string }) {
                 autoFocus
               />
             </div>
-            <Button
-              onClick={handleJoin}
-              disabled={!joinName.trim() || joining}
-              className="w-full bg-violet-600 hover:bg-violet-500 text-white h-10 text-sm font-semibold"
-            >
+            <Button onClick={handleJoin} disabled={!joinName.trim() || joining}
+              className="w-full bg-violet-600 hover:bg-violet-500 text-white h-10 text-sm font-semibold">
               {joining ? 'Joining...' : 'Join Session'}
             </Button>
           </div>
@@ -307,23 +383,17 @@ export function RoomView({ roomId }: { roomId: string }) {
         className="sticky top-0 z-10 backdrop-blur-md"
         style={{ backgroundColor: 'rgba(12,21,37,0.85)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}
       >
-        <div className="max-w-5xl mx-auto px-5 h-14 flex items-center justify-between gap-4">
+        <div className="max-w-4xl mx-auto px-5 h-14 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
             <span className="text-violet-400 font-black text-base shrink-0">◈</span>
             <span className="font-semibold text-sm text-zinc-100 truncate">{room?.name}</span>
             <span className="hidden sm:block w-px h-3.5 shrink-0" style={{ backgroundColor: 'rgba(255,255,255,0.08)' }} />
-            <button
-              onClick={handleCopyCode}
-              className="hidden sm:flex items-center gap-1.5 text-zinc-600 hover:text-zinc-300 transition-colors"
-            >
+            <button onClick={handleCopyCode} className="hidden sm:flex items-center gap-1.5 text-zinc-600 hover:text-zinc-300 transition-colors">
               {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
               <span className="font-mono text-xs tracking-widest">{roomId}</span>
             </button>
           </div>
-          <button
-            onClick={handleLeave}
-            className="flex items-center gap-1.5 text-zinc-600 hover:text-zinc-300 text-xs transition-colors"
-          >
+          <button onClick={handleLeave} className="flex items-center gap-1.5 text-zinc-600 hover:text-zinc-300 text-xs transition-colors">
             Leave <LogOut className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -334,78 +404,61 @@ export function RoomView({ roomId }: { roomId: string }) {
 
         {/* ── Poker table ──────────────────────────────────────── */}
         <div className="flex-1 flex flex-col items-center justify-center w-full min-h-0">
-
-          {/* Top players */}
           {seats.top.length > 0 && (
-            <div className="flex items-end gap-7 justify-center pb-8">
-              {seats.top.map(renderSeat)}
-            </div>
+            <div className="flex items-end gap-7 justify-center pb-8">{seats.top.map(renderSeat)}</div>
           )}
-
-          {/* Middle row: left | table | right */}
           <div className="flex items-center justify-center gap-8 w-full">
+            {seats.left.length > 0 && <div className="flex flex-col gap-7">{seats.left.map(renderSeat)}</div>}
 
-            {seats.left.length > 0 && (
-              <div className="flex flex-col gap-7">
-                {seats.left.map(renderSeat)}
-              </div>
-            )}
-
-            {/* The table */}
-            <div
-              className="flex items-center justify-center rounded-[2.5rem] px-14 py-10 shrink-0"
-              style={{
-                minWidth: 250,
-                minHeight: 135,
-                backgroundColor: '#1a3050',
-                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04), 0 10px 50px rgba(8,15,30,0.7)',
-              }}
-            >
+            {/* Table */}
+            <div className="flex items-center justify-center rounded-[2.5rem] px-14 py-10 shrink-0"
+              style={{ minWidth: 250, minHeight: 135, backgroundColor: '#1a3050', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04), 0 10px 50px rgba(8,15,30,0.7)' }}>
               {room?.phase === 'voting' ? (
                 <div className="text-center space-y-1.5">
                   <p className="text-zinc-300 text-sm font-medium">Voting in progress</p>
-                  {votedCount > 0 && (
-                    <p className="text-zinc-600 text-xs tabular-nums">{votedCount} of {totalCount} voted</p>
-                  )}
+                  {votedCount > 0 && <p className="text-zinc-600 text-xs tabular-nums">{votedCount} of {totalCount} voted</p>}
                 </div>
               ) : (
                 <div className="text-center space-y-1">
                   {consensus ? (
-                    <>
-                      <p className="text-emerald-500/70 text-[11px] font-semibold uppercase tracking-widest">Consensus</p>
-                      <p className="text-white font-black text-5xl tabular-nums">{consensus}</p>
-                    </>
+                    <><p className="text-emerald-500/70 text-[11px] font-semibold uppercase tracking-widest">Consensus</p>
+                      <p className="text-white font-black text-5xl tabular-nums">{consensus}</p></>
                   ) : (
-                    <>
-                      <p className="text-zinc-500 text-[11px] font-semibold uppercase tracking-widest">Average</p>
+                    <><p className="text-zinc-500 text-[11px] font-semibold uppercase tracking-widest">Average</p>
                       <p className="text-white font-black text-5xl tabular-nums">{calcAverage(revealedVotes)}</p>
-                      <p className="text-zinc-600 text-xs">No consensus</p>
-                    </>
+                      <p className="text-zinc-600 text-xs">No consensus</p></>
                   )}
                 </div>
               )}
             </div>
 
-            {seats.right.length > 0 && (
-              <div className="flex flex-col gap-7">
-                {seats.right.map(renderSeat)}
-              </div>
-            )}
+            {seats.right.length > 0 && <div className="flex flex-col gap-7">{seats.right.map(renderSeat)}</div>}
           </div>
-
-          {/* Bottom players */}
           {seats.bottom.length > 0 && (
-            <div className="flex items-start gap-7 justify-center pt-8">
-              {seats.bottom.map(renderSeat)}
-            </div>
+            <div className="flex items-start gap-7 justify-center pt-8">{seats.bottom.map(renderSeat)}</div>
           )}
         </div>
 
-        {/* ── Story + cards ─────────────────────────────────────── */}
+        {/* ── Bottom: story + cards + queue + history ───────────── */}
         <div className="w-full space-y-4 shrink-0">
 
-          {/* Story + action button */}
-          <div className="flex gap-2.5">
+          {/* Story row with inline Jira ticket input */}
+          <div className="flex gap-2">
+            {/* Jira ticket input */}
+            <div className="relative">
+              <Input
+                placeholder="JIRA-123"
+                value={jiraTicket}
+                onChange={(e) => setJiraTicket(e.target.value.toUpperCase())}
+                onFocus={() => setStoryFocused(true)}
+                onBlur={handleStoryBlur}
+                onKeyDown={(e) => e.key === 'Enter' && storyRef.current?.focus()}
+                className="w-[7.5rem] h-10 text-xs font-mono uppercase tracking-wider text-blue-300 placeholder:text-zinc-700 focus-visible:ring-violet-500/50"
+                style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.08)' }}
+              />
+            </div>
+
+            {/* Story title */}
             <Input
               ref={storyRef}
               placeholder="What are you estimating?"
@@ -417,26 +470,20 @@ export function RoomView({ roomId }: { roomId: string }) {
               className="flex-1 h-10 text-sm text-zinc-200 placeholder:text-zinc-700 focus-visible:ring-violet-500/50"
               style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.08)' }}
             />
+
+            {/* Action */}
             {room?.phase === 'voting' ? (
-              <Button
-                onClick={handleReveal}
-                disabled={votedCount === 0}
-                className="h-10 px-5 bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold shrink-0 gap-2"
-              >
+              <Button onClick={handleReveal} disabled={votedCount === 0}
+                className="h-10 px-5 bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold shrink-0 gap-2">
                 <Eye className="w-3.5 h-3.5" />
                 Reveal
-                {votedCount > 0 && (
-                  <span className="font-mono text-violet-300 text-xs ml-0.5">{votedCount}/{totalCount}</span>
-                )}
+                {votedCount > 0 && <span className="font-mono text-violet-300 text-xs ml-0.5">{votedCount}/{totalCount}</span>}
               </Button>
             ) : (
-              <Button
-                onClick={handleReset}
-                variant="ghost"
-                className="h-10 px-5 text-zinc-400 hover:text-zinc-100 text-sm shrink-0 gap-2"
-              >
+              <Button onClick={handleReset} variant="ghost"
+                className="h-10 px-5 text-zinc-400 hover:text-zinc-100 text-sm shrink-0 gap-2">
                 <RotateCcw className="w-3.5 h-3.5" />
-                New Round
+                {room?.topics && room.topics.length > 0 ? 'Next' : 'New Round'}
               </Button>
             )}
           </div>
@@ -445,12 +492,7 @@ export function RoomView({ roomId }: { roomId: string }) {
           {room?.phase === 'voting' && participantId && (
             <div className="flex flex-wrap justify-center gap-3">
               {CARD_VALUES.map((v) => (
-                <PokerCard
-                  key={v}
-                  value={v}
-                  selected={myVote === v}
-                  onClick={() => handleVote(v)}
-                />
+                <PokerCard key={v} value={v} selected={myVote === v} onClick={() => handleVote(v)} />
               ))}
             </div>
           )}
@@ -463,11 +505,101 @@ export function RoomView({ roomId }: { roomId: string }) {
                 return (
                   <div key={v} className="flex flex-col items-center gap-1.5">
                     <PokerCard value={v} revealed />
-                    <span className="text-[11px] text-zinc-600 font-mono tabular-nums">x{count}</span>
+                    <span className="text-[11px] text-zinc-600 font-mono tabular-nums">×{count}</span>
                   </div>
                 )
               })}
             </div>
+          )}
+
+          {/* ── Queue ────────────────────────────────────────────── */}
+          {(isModerator || (room?.topics && room.topics.length > 0)) && (
+            <CollapsiblePanel
+              title="Queue"
+              count={room?.topics.length}
+              defaultOpen={(room?.topics.length ?? 0) > 0}
+              action={
+                isModerator ? (
+                  <button
+                    onClick={() => setShowAddTopic((v) => !v)}
+                    className="flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors"
+                  >
+                    <Plus className="w-3 h-3" />
+                    Add
+                  </button>
+                ) : undefined
+              }
+            >
+              {/* Add topic inline form */}
+              {showAddTopic && isModerator && (
+                <div
+                  className="flex gap-2 px-5 py-3"
+                  style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
+                >
+                  <Input
+                    placeholder="JIRA-123"
+                    value={newTopicJira}
+                    onChange={(e) => setNewTopicJira(e.target.value.toUpperCase())}
+                    onKeyDown={(e) => e.key === 'Enter' && newTopicTitle && handleAddTopic()}
+                    className="w-24 h-8 text-xs font-mono uppercase text-blue-300 placeholder:text-zinc-600 focus-visible:ring-violet-500"
+                    style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.08)' }}
+                    autoFocus
+                  />
+                  <Input
+                    placeholder="Story title"
+                    value={newTopicTitle}
+                    onChange={(e) => setNewTopicTitle(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddTopic()}
+                    className="flex-1 h-8 text-xs text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-violet-500"
+                    style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.08)' }}
+                  />
+                  <Button onClick={handleAddTopic} disabled={!newTopicTitle.trim()} size="sm"
+                    className="h-8 px-3 bg-violet-600/20 hover:bg-violet-600/40 text-violet-400 border border-violet-600/30 text-xs">
+                    Add
+                  </Button>
+                </div>
+              )}
+
+              {/* Topic list */}
+              {room?.topics.length === 0 && !showAddTopic && (
+                <div className="px-5 py-3 text-[12px] text-zinc-700">No topics queued.</div>
+              )}
+              {room?.topics.map((t) => (
+                <div
+                  key={t.id}
+                  className="flex items-center gap-3 px-5 py-3 hover:bg-white/[0.02] transition-colors"
+                  style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}
+                >
+                  {t.jiraTicket && <JiraBadge ticket={t.jiraTicket} />}
+                  <span className="text-sm text-zinc-300 flex-1 truncate min-w-0">{t.title}</span>
+                  {isModerator && (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => handleStartTopic(t.id)}
+                        className="flex items-center gap-1 text-[11px] text-violet-400 hover:text-violet-300 font-semibold transition-colors"
+                      >
+                        <Play className="w-3 h-3" />
+                        Vote
+                      </button>
+                      <button onClick={() => handleRemoveTopic(t.id)} className="text-zinc-700 hover:text-zinc-400 transition-colors">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </CollapsiblePanel>
+          )}
+
+          {/* ── History ──────────────────────────────────────────── */}
+          {room && room.history.length > 0 && (
+            <CollapsiblePanel title="History" count={room.history.length}>
+              <div>
+                {[...room.history].reverse().map((entry) => (
+                  <HistoryEntryRow key={entry.id} entry={entry} />
+                ))}
+              </div>
+            </CollapsiblePanel>
           )}
         </div>
       </main>
