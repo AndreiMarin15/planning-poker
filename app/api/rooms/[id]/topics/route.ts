@@ -3,9 +3,9 @@ import { store } from '@/lib/store'
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const { title, jiraTicket } = await request.json()
+  const { title, jiraTicket, jiraLink } = await request.json()
   if (!title?.trim()) return NextResponse.json({ error: 'title required' }, { status: 400 })
-  const room = store.addTopic(id, title.trim(), jiraTicket?.trim())
+  const room = store.addTopic(id, title.trim(), jiraTicket?.trim(), jiraLink?.trim())
   if (!room) return NextResponse.json({ error: 'Room not found' }, { status: 404 })
   return NextResponse.json({ room })
 }

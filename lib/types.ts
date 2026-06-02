@@ -7,12 +7,14 @@ export interface Topic {
   id: string
   title: string
   jiraTicket?: string
+  jiraLink?: string
 }
 
 export interface HistoryEntry {
   id: string
   story: string
   jiraTicket?: string
+  jiraLink?: string
   votes: Record<string, string>
   participantNames: Record<string, string>
   consensus: string | null
@@ -25,6 +27,7 @@ export interface Room {
   name: string
   story: string
   jiraTicket?: string
+  jiraLink?: string
   topics: Topic[]
   history: HistoryEntry[]
   participants: Participant[]

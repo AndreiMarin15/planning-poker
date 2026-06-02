@@ -23,6 +23,7 @@ function buildHistoryEntry(room: Room): HistoryEntry {
     id: crypto.randomUUID(),
     story: room.story,
     jiraTicket: room.jiraTicket,
+    jiraLink: room.jiraLink,
     votes: { ...room.votes },
     participantNames: Object.fromEntries(room.participants.map((p) => [p.id, p.name])),
     consensus,
@@ -39,7 +40,7 @@ export const store = {
   createRoom(
     roomName: string,
     creatorName: string,
-    initialTopics: Array<{ title: string; jiraTicket?: string }> = [],
+    initialTopics: Array<{ title: string; jiraTicket?: string; jiraLink?: string }> = [],
   ): { room: Room; participantId: string } {
     const roomId = randomId()
     const participantId = crypto.randomUUID()
@@ -49,15 +50,18 @@ export const store = {
       id: crypto.randomUUID(),
       title: t.title,
       jiraTicket: t.jiraTicket || undefined,
+      jiraLink: t.jiraLink || undefined,
     }))
 
     // Auto-start with the first topic if provided
     let story = ''
     let jiraTicket: string | undefined
+    let jiraLink: string | undefined
     let remainingTopics = topics
     if (topics.length > 0) {
       story = topics[0].title
       jiraTicket = topics[0].jiraTicket
+      jiraLink = topics[0].jiraLink
       remainingTopics = topics.slice(1)
     }
 
@@ -66,6 +70,7 @@ export const store = {
       name: roomName,
       story,
       jiraTicket,
+      jiraLink,
       topics: remainingTopics,
       history: [],
       participants: [participant],
@@ -113,19 +118,21 @@ export const store = {
     return updated
   },
 
-  resetRound(roomId: string, story?: string, jiraTicket?: string): Room | null {
+  resetRound(roomId: string, story?: string, jiraTicket?: string, jiraLink?: string): Room | null {
     const id = roomId.toUpperCase()
     const room = rooms.get(id)
     if (!room) return null
 
     let nextStory = story ?? ''
     let nextJira = jiraTicket
+    let nextLink = jiraLink
     let nextTopics = room.topics
 
     // Auto-advance to next queued topic if no explicit story provided
     if (!story && room.topics.length > 0) {
       nextStory = room.topics[0].title
       nextJira = room.topics[0].jiraTicket
+      nextLink = room.topics[0].jiraLink
       nextTopics = room.topics.slice(1)
     }
 
@@ -135,6 +142,7 @@ export const store = {
       votes: {},
       story: nextStory,
       jiraTicket: nextJira,
+      jiraLink: nextLink,
       topics: nextTopics,
     }
     rooms.set(id, updated)
@@ -142,21 +150,31 @@ export const store = {
     return updated
   },
 
-  updateStory(roomId: string, story: string, jiraTicket: string): Room | null {
+  updateStory(roomId: string, story: string, jiraTicket: string, jiraLink: string): Room | null {
     const id = roomId.toUpperCase()
     const room = rooms.get(id)
     if (!room) return null
-    const updated: Room = { ...room, story, jiraTicket: jiraTicket || undefined }
+    const updated: Room = {
+      ...room,
+      story,
+      jiraTicket: jiraTicket || undefined,
+      jiraLink: jiraLink || undefined,
+    }
     rooms.set(id, updated)
     broadcast(id, updated)
     return updated
   },
 
-  addTopic(roomId: string, title: string, jiraTicket?: string): Room | null {
+  addTopic(roomId: string, title: string, jiraTicket?: string, jiraLink?: string): Room | null {
     const id = roomId.toUpperCase()
     const room = rooms.get(id)
     if (!room) return null
-    const topic: Topic = { id: crypto.randomUUID(), title, jiraTicket: jiraTicket || undefined }
+    const topic: Topic = {
+      id: crypto.randomUUID(),
+      title,
+      jiraTicket: jiraTicket || undefined,
+      jiraLink: jiraLink || undefined,
+    }
     const updated: Room = { ...room, topics: [...room.topics, topic] }
     rooms.set(id, updated)
     broadcast(id, updated)
@@ -183,6 +201,7 @@ export const store = {
       ...room,
       story: topic.title,
       jiraTicket: topic.jiraTicket,
+      jiraLink: topic.jiraLink,
       topics: room.topics.filter((t) => t.id !== topicId),
       phase: 'voting',
       votes: {},

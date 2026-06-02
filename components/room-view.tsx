@@ -16,8 +16,9 @@ import {
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
-import { Copy, Check, Eye, RotateCcw, LogOut, ChevronDown, Plus, X, Play, Clock } from 'lucide-react'
+import { Copy, Check, Eye, RotateCcw, LogOut, ChevronDown, Plus, X, Play, Link2, ExternalLink } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { extractJiraTicket, isJiraUrl } from '@/lib/jira'
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -88,12 +89,17 @@ function TableCard({ name, voted, revealed, value, isMe }: {
 
 // ── JiraBadge ─────────────────────────────────────────────────────────────────
 
-function JiraBadge({ ticket }: { ticket: string }) {
-  return (
-    <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold font-mono text-blue-300 bg-blue-500/15 border border-blue-500/20 shrink-0">
-      {ticket}
-    </span>
-  )
+function JiraBadge({ ticket, link }: { ticket: string; link?: string }) {
+  const cls = 'inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold font-mono text-blue-300 bg-blue-500/15 border border-blue-500/20 shrink-0'
+  if (link) {
+    return (
+      <a href={link} target="_blank" rel="noopener noreferrer" className={cn(cls, 'hover:bg-blue-500/25 hover:text-blue-200 transition-colors')}>
+        {ticket}
+        <ExternalLink className="w-2.5 h-2.5 opacity-60" />
+      </a>
+    )
+  }
+  return <span className={cls}>{ticket}</span>
 }
 
 // ── CollapsiblePanel ──────────────────────────────────────────────────────────
@@ -137,7 +143,7 @@ function HistoryEntryRow({ entry }: { entry: HistoryEntry }) {
         onClick={() => setExpanded((v) => !v)}
         className="w-full flex items-center gap-3 px-5 py-3 text-left hover:bg-white/[0.02] transition-colors"
       >
-        {entry.jiraTicket && <JiraBadge ticket={entry.jiraTicket} />}
+        {entry.jiraTicket && <JiraBadge ticket={entry.jiraTicket} link={entry.jiraLink} />}
         <span className="text-sm text-zinc-400 flex-1 truncate min-w-0">{entry.story || 'Untitled'}</span>
         <div className="flex items-center gap-2 shrink-0">
           {entry.consensus ? (
@@ -177,14 +183,16 @@ export function RoomView({ roomId }: { roomId: string }) {
   const [joining, setJoining] = useState(false)
   const [copied, setCopied] = useState(false)
 
-  // Story / Jira ticket local state (mirrors room, editable)
+  // Story / Jira ticket / link local state (mirrors room, editable)
   const [story, setStory] = useState('')
   const [jiraTicket, setJiraTicket] = useState('')
+  const [jiraLink, setJiraLink] = useState('')
   const [storyFocused, setStoryFocused] = useState(false)
 
   // Add-topic form
   const [showAddTopic, setShowAddTopic] = useState(false)
   const [newTopicJira, setNewTopicJira] = useState('')
+  const [newTopicLink, setNewTopicLink] = useState('')
   const [newTopicTitle, setNewTopicTitle] = useState('')
 
   const storyRef = useRef<HTMLInputElement>(null)
@@ -202,6 +210,7 @@ export function RoomView({ roomId }: { roomId: string }) {
       if (!storyFocused) {
         setStory(data.story)
         setJiraTicket(data.jiraTicket ?? '')
+        setJiraLink(data.jiraLink ?? '')
       }
     }
     es.onerror = () => { setTimeout(() => { if (esRef.current === es) connectSSE(pid) }, 2000) }
@@ -217,7 +226,7 @@ export function RoomView({ roomId }: { roomId: string }) {
       const es = new EventSource(`/api/rooms/${roomId}/events`)
       es.onmessage = (e) => {
         const r: Room = JSON.parse(e.data)
-        setRoom(r); setStory(r.story); setJiraTicket(r.jiraTicket ?? '')
+        setRoom(r); setStory(r.story); setJiraTicket(r.jiraTicket ?? ''); setJiraLink(r.jiraLink ?? '')
       }
       es.onerror = () => setRoom(null)
       esRef.current = es
@@ -238,7 +247,7 @@ export function RoomView({ roomId }: { roomId: string }) {
       if (!res.ok) { toast.error('Room not found'); router.push('/'); return }
       const { participantId: pid, room: r } = await res.json()
       localStorage.setItem(`pp_${roomId}_pid`, pid)
-      setParticipantId(pid); setRoom(r); setStory(r.story); setJiraTicket(r.jiraTicket ?? '')
+      setParticipantId(pid); setRoom(r); setStory(r.story); setJiraTicket(r.jiraTicket ?? ''); setJiraLink(r.jiraLink ?? '')
       setShowJoinDialog(false); connectSSE(pid)
     } finally { setJoining(false) }
   }
@@ -262,16 +271,25 @@ export function RoomView({ roomId }: { roomId: string }) {
     const { room: r } = await res.json()
     setStory(r.story)
     setJiraTicket(r.jiraTicket ?? '')
+    setJiraLink(r.jiraLink ?? '')
   }
 
   async function handleStoryBlur() {
     setStoryFocused(false)
     if (!room) return
-    if (story !== room.story || jiraTicket !== (room.jiraTicket ?? '')) {
+    if (story !== room.story || jiraTicket !== (room.jiraTicket ?? '') || jiraLink !== (room.jiraLink ?? '')) {
       await fetch(`/api/rooms/${roomId}/story`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ story, jiraTicket }),
+        body: JSON.stringify({ story, jiraTicket, jiraLink }),
       })
+    }
+  }
+
+  function handleLinkChange(value: string) {
+    setJiraLink(value)
+    if (isJiraUrl(value)) {
+      const ticket = extractJiraTicket(value)
+      if (ticket && !jiraTicket) setJiraTicket(ticket)
     }
   }
 
@@ -281,7 +299,7 @@ export function RoomView({ roomId }: { roomId: string }) {
       body: JSON.stringify({ topicId }),
     })
     const { room: r } = await res.json()
-    setStory(r.story); setJiraTicket(r.jiraTicket ?? '')
+    setStory(r.story); setJiraTicket(r.jiraTicket ?? ''); setJiraLink(r.jiraLink ?? '')
   }
 
   async function handleRemoveTopic(topicId: string) {
@@ -291,13 +309,21 @@ export function RoomView({ roomId }: { roomId: string }) {
     })
   }
 
+  function handleTopicLinkChange(value: string) {
+    setNewTopicLink(value)
+    if (isJiraUrl(value)) {
+      const ticket = extractJiraTicket(value)
+      if (ticket && !newTopicJira) setNewTopicJira(ticket)
+    }
+  }
+
   async function handleAddTopic() {
     if (!newTopicTitle.trim()) return
     await fetch(`/api/rooms/${roomId}/topics`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: newTopicTitle.trim(), jiraTicket: newTopicJira.trim() }),
+      body: JSON.stringify({ title: newTopicTitle.trim(), jiraTicket: newTopicJira.trim(), jiraLink: newTopicLink.trim() }),
     })
-    setNewTopicJira(''); setNewTopicTitle(''); setShowAddTopic(false)
+    setNewTopicJira(''); setNewTopicLink(''); setNewTopicTitle(''); setShowAddTopic(false)
   }
 
   function handleLeave() {
@@ -442,10 +468,10 @@ export function RoomView({ roomId }: { roomId: string }) {
         {/* ── Bottom: story + cards + queue + history ───────────── */}
         <div className="w-full space-y-4 shrink-0">
 
-          {/* Story row with inline Jira ticket input */}
-          <div className="flex gap-2">
-            {/* Jira ticket input */}
-            <div className="relative">
+          {/* Story row */}
+          <div className="space-y-1.5">
+            <div className="flex gap-2">
+              {/* Jira ticket # */}
               <Input
                 placeholder="JIRA-123"
                 value={jiraTicket}
@@ -456,36 +482,53 @@ export function RoomView({ roomId }: { roomId: string }) {
                 className="w-[7.5rem] h-10 text-xs font-mono uppercase tracking-wider text-blue-300 placeholder:text-zinc-700 focus-visible:ring-violet-500/50"
                 style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.08)' }}
               />
+              {/* Story title */}
+              <Input
+                ref={storyRef}
+                placeholder="What are you estimating?"
+                value={story}
+                onChange={(e) => setStory(e.target.value)}
+                onFocus={() => setStoryFocused(true)}
+                onBlur={handleStoryBlur}
+                onKeyDown={(e) => e.key === 'Enter' && storyRef.current?.blur()}
+                className="flex-1 h-10 text-sm text-zinc-200 placeholder:text-zinc-700 focus-visible:ring-violet-500/50"
+                style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.08)' }}
+              />
+              {/* Action */}
+              {room?.phase === 'voting' ? (
+                <Button onClick={handleReveal} disabled={votedCount === 0}
+                  className="h-10 px-5 bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold shrink-0 gap-2">
+                  <Eye className="w-3.5 h-3.5" />
+                  Reveal
+                  {votedCount > 0 && <span className="font-mono text-violet-300 text-xs ml-0.5">{votedCount}/{totalCount}</span>}
+                </Button>
+              ) : (
+                <Button onClick={handleReset} variant="ghost"
+                  className="h-10 px-5 text-zinc-400 hover:text-zinc-100 text-sm shrink-0 gap-2">
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  {room?.topics && room.topics.length > 0 ? 'Next' : 'New Round'}
+                </Button>
+              )}
             </div>
-
-            {/* Story title */}
-            <Input
-              ref={storyRef}
-              placeholder="What are you estimating?"
-              value={story}
-              onChange={(e) => setStory(e.target.value)}
-              onFocus={() => setStoryFocused(true)}
-              onBlur={handleStoryBlur}
-              onKeyDown={(e) => e.key === 'Enter' && storyRef.current?.blur()}
-              className="flex-1 h-10 text-sm text-zinc-200 placeholder:text-zinc-700 focus-visible:ring-violet-500/50"
-              style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.08)' }}
-            />
-
-            {/* Action */}
-            {room?.phase === 'voting' ? (
-              <Button onClick={handleReveal} disabled={votedCount === 0}
-                className="h-10 px-5 bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold shrink-0 gap-2">
-                <Eye className="w-3.5 h-3.5" />
-                Reveal
-                {votedCount > 0 && <span className="font-mono text-violet-300 text-xs ml-0.5">{votedCount}/{totalCount}</span>}
-              </Button>
-            ) : (
-              <Button onClick={handleReset} variant="ghost"
-                className="h-10 px-5 text-zinc-400 hover:text-zinc-100 text-sm shrink-0 gap-2">
-                <RotateCcw className="w-3.5 h-3.5" />
-                {room?.topics && room.topics.length > 0 ? 'Next' : 'New Round'}
-              </Button>
-            )}
+            {/* Jira link — paste URL to auto-fill ticket number */}
+            <div className="flex items-center gap-2">
+              <Link2 className="w-3.5 h-3.5 text-zinc-700 shrink-0" />
+              <Input
+                placeholder="Jira URL (optional) — auto-fills ticket number on paste"
+                value={jiraLink}
+                onChange={(e) => handleLinkChange(e.target.value)}
+                onFocus={() => setStoryFocused(true)}
+                onBlur={handleStoryBlur}
+                className="flex-1 h-8 text-xs text-zinc-400 placeholder:text-zinc-700 focus-visible:ring-violet-500/50"
+                style={{ backgroundColor: 'rgba(255,255,255,0.03)', borderColor: 'rgba(255,255,255,0.06)' }}
+              />
+              {jiraLink && (
+                <a href={jiraLink} target="_blank" rel="noopener noreferrer"
+                  className="text-blue-500 hover:text-blue-400 transition-colors shrink-0">
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              )}
+            </div>
           </div>
 
           {/* Voting cards */}
@@ -533,30 +576,43 @@ export function RoomView({ roomId }: { roomId: string }) {
               {/* Add topic inline form */}
               {showAddTopic && isModerator && (
                 <div
-                  className="flex gap-2 px-5 py-3"
+                  className="space-y-1.5 px-5 py-3"
                   style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
                 >
-                  <Input
-                    placeholder="JIRA-123"
-                    value={newTopicJira}
-                    onChange={(e) => setNewTopicJira(e.target.value.toUpperCase())}
-                    onKeyDown={(e) => e.key === 'Enter' && newTopicTitle && handleAddTopic()}
-                    className="w-24 h-8 text-xs font-mono uppercase text-blue-300 placeholder:text-zinc-600 focus-visible:ring-violet-500"
-                    style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.08)' }}
-                    autoFocus
-                  />
-                  <Input
-                    placeholder="Story title"
-                    value={newTopicTitle}
-                    onChange={(e) => setNewTopicTitle(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleAddTopic()}
-                    className="flex-1 h-8 text-xs text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-violet-500"
-                    style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.08)' }}
-                  />
-                  <Button onClick={handleAddTopic} disabled={!newTopicTitle.trim()} size="sm"
-                    className="h-8 px-3 bg-violet-600/20 hover:bg-violet-600/40 text-violet-400 border border-violet-600/30 text-xs">
-                    Add
-                  </Button>
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="JIRA-123"
+                      value={newTopicJira}
+                      onChange={(e) => setNewTopicJira(e.target.value.toUpperCase())}
+                      onKeyDown={(e) => e.key === 'Enter' && newTopicTitle && handleAddTopic()}
+                      className="w-24 h-8 text-xs font-mono uppercase text-blue-300 placeholder:text-zinc-600 focus-visible:ring-violet-500"
+                      style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.08)' }}
+                      autoFocus
+                    />
+                    <Input
+                      placeholder="Story title"
+                      value={newTopicTitle}
+                      onChange={(e) => setNewTopicTitle(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleAddTopic()}
+                      className="flex-1 h-8 text-xs text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-violet-500"
+                      style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.08)' }}
+                    />
+                    <Button onClick={handleAddTopic} disabled={!newTopicTitle.trim()} size="sm"
+                      className="h-8 px-3 bg-violet-600/20 hover:bg-violet-600/40 text-violet-400 border border-violet-600/30 text-xs">
+                      Add
+                    </Button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Link2 className="w-3 h-3 text-zinc-700 shrink-0" />
+                    <Input
+                      placeholder="Jira URL (optional)"
+                      value={newTopicLink}
+                      onChange={(e) => handleTopicLinkChange(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleAddTopic()}
+                      className="flex-1 h-7 text-xs text-zinc-400 placeholder:text-zinc-700 focus-visible:ring-violet-500"
+                      style={{ backgroundColor: 'rgba(255,255,255,0.03)', borderColor: 'rgba(255,255,255,0.06)' }}
+                    />
+                  </div>
                 </div>
               )}
 
@@ -570,7 +626,7 @@ export function RoomView({ roomId }: { roomId: string }) {
                   className="flex items-center gap-3 px-5 py-3 hover:bg-white/[0.02] transition-colors"
                   style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}
                 >
-                  {t.jiraTicket && <JiraBadge ticket={t.jiraTicket} />}
+                  {t.jiraTicket && <JiraBadge ticket={t.jiraTicket} link={t.jiraLink} />}
                   <span className="text-sm text-zinc-300 flex-1 truncate min-w-0">{t.title}</span>
                   {isModerator && (
                     <div className="flex items-center gap-2 shrink-0">
