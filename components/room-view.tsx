@@ -20,6 +20,26 @@ import { Copy, Check, Eye, RotateCcw, LogOut, ChevronDown, Plus, X, Play, Link2,
 import { cn } from '@/lib/utils'
 import { extractJiraTicket, isJiraUrl } from '@/lib/jira'
 
+// ── Cookie session helpers ────────────────────────────────────────────────────
+// Keyed per room so multiple rooms work in the same browser.
+
+function getSession(roomId: string): string | null {
+  if (typeof document === 'undefined') return null
+  const m = document.cookie.match(new RegExp(`(?:^|; )pp_${roomId}_pid=([^;]+)`))
+  return m ? decodeURIComponent(m[1]) : localStorage.getItem(`pp_${roomId}_pid`)
+}
+
+function setSession(roomId: string, pid: string) {
+  const exp = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toUTCString()
+  document.cookie = `pp_${roomId}_pid=${encodeURIComponent(pid)}; expires=${exp}; path=/; SameSite=Strict`
+  localStorage.setItem(`pp_${roomId}_pid`, pid) // keep in sync for legacy
+}
+
+function clearSession(roomId: string) {
+  document.cookie = `pp_${roomId}_pid=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; SameSite=Strict`
+  localStorage.removeItem(`pp_${roomId}_pid`)
+}
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 function calcAverage(votes: string[]): string {
@@ -187,7 +207,10 @@ export function RoomView({ roomId }: { roomId: string }) {
   const [story, setStory] = useState('')
   const [jiraTicket, setJiraTicket] = useState('')
   const [jiraLink, setJiraLink] = useState('')
-  const [storyFocused, setStoryFocused] = useState(false)
+  const [roomGone, setRoomGone] = useState(false)
+
+  // Use a ref for focus tracking so connectSSE doesn't need it as a dep
+  const storyFocusedRef = useRef(false)
 
   // Add-topic form
   const [showAddTopic, setShowAddTopic] = useState(false)
@@ -204,34 +227,67 @@ export function RoomView({ roomId }: { roomId: string }) {
   const connectSSE = useCallback((pid: string) => {
     if (esRef.current) esRef.current.close()
     const es = new EventSource(`/api/rooms/${roomId}/events`)
+
     es.onmessage = (e) => {
       const data: Room = JSON.parse(e.data)
       setRoom(data)
-      if (!storyFocused) {
+      setRoomGone(false)
+      if (!storyFocusedRef.current) {
         setStory(data.story)
         setJiraTicket(data.jiraTicket ?? '')
         setJiraLink(data.jiraLink ?? '')
       }
     }
-    es.onerror = () => { setTimeout(() => { if (esRef.current === es) connectSSE(pid) }, 2000) }
+
+    es.onerror = () => {
+      if (es.readyState === EventSource.CLOSED) {
+        // HTTP-level failure (404, wrong content-type) — room is likely gone.
+        // Verify once before giving up, then reconnect or surface the error.
+        esRef.current = null
+        setTimeout(() => {
+          fetch(`/api/rooms/${roomId}`)
+            .then((r) => { if (r.ok) connectSSE(pid); else setRoomGone(true) })
+            .catch(() => setTimeout(() => connectSSE(pid), 3000))
+        }, 1000)
+      }
+      // readyState === CONNECTING: browser is already retrying — do nothing
+    }
+
     esRef.current = es
-  }, [roomId, storyFocused])
+  }, [roomId]) // stable — no storyFocused dep
+
+  // Timeout: if still connecting after 12 s, declare the room gone
+  useEffect(() => {
+    if (room || roomGone || showJoinDialog) return
+    const t = setTimeout(() => setRoomGone(true), 12000)
+    return () => clearTimeout(t)
+  }, [room, roomGone, showJoinDialog])
 
   useEffect(() => {
-    const pid = localStorage.getItem(`pp_${roomId}_pid`)
-    if (pid) {
-      setParticipantId(pid)
-      connectSSE(pid)
-    } else {
-      const es = new EventSource(`/api/rooms/${roomId}/events`)
-      es.onmessage = (e) => {
-        const r: Room = JSON.parse(e.data)
-        setRoom(r); setStory(r.story); setJiraTicket(r.jiraTicket ?? ''); setJiraLink(r.jiraLink ?? '')
+    const pid = getSession(roomId)
+
+    async function init() {
+      // Check the room exists before opening the SSE stream
+      const check = await fetch(`/api/rooms/${roomId}`).catch(() => null)
+      if (!check?.ok) { setRoomGone(true); return }
+
+      if (pid) {
+        setParticipantId(pid)
+        connectSSE(pid)
+      } else {
+        // Observer connection while the join dialog is shown
+        const es = new EventSource(`/api/rooms/${roomId}/events`)
+        es.onmessage = (e) => {
+          const r: Room = JSON.parse(e.data)
+          setRoom(r); setStory(r.story); setJiraTicket(r.jiraTicket ?? ''); setJiraLink(r.jiraLink ?? '')
+        }
+        es.onerror = () => { if (es.readyState === EventSource.CLOSED) setRoomGone(true) }
+        esRef.current = es
+        setShowJoinDialog(true)
       }
-      es.onerror = () => setRoom(null)
-      esRef.current = es
-      setShowJoinDialog(true)
     }
+
+    init()
     return () => esRef.current?.close()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId])
@@ -246,7 +302,7 @@ export function RoomView({ roomId }: { roomId: string }) {
       })
       if (!res.ok) { toast.error('Room not found'); router.push('/'); return }
       const { participantId: pid, room: r } = await res.json()
-      localStorage.setItem(`pp_${roomId}_pid`, pid)
+      setSession(roomId, pid)
       setParticipantId(pid); setRoom(r); setStory(r.story); setJiraTicket(r.jiraTicket ?? ''); setJiraLink(r.jiraLink ?? '')
       setShowJoinDialog(false); connectSSE(pid)
     } finally { setJoining(false) }
@@ -275,7 +331,7 @@ export function RoomView({ roomId }: { roomId: string }) {
   }
 
   async function handleStoryBlur() {
-    setStoryFocused(false)
+    storyFocusedRef.current = false
     if (!room) return
     if (story !== room.story || jiraTicket !== (room.jiraTicket ?? '') || jiraLink !== (room.jiraLink ?? '')) {
       await fetch(`/api/rooms/${roomId}/story`, {
@@ -327,7 +383,7 @@ export function RoomView({ roomId }: { roomId: string }) {
   }
 
   function handleLeave() {
-    localStorage.removeItem(`pp_${roomId}_pid`)
+    clearSession(roomId)
     if (participantId) {
       fetch(`/api/rooms/${roomId}/leave`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -343,9 +399,26 @@ export function RoomView({ roomId }: { roomId: string }) {
     })
   }
 
+  if (roomGone) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-6 text-center px-6" style={{ backgroundColor: '#0f1929' }}>
+        <div className="space-y-2">
+          <p className="text-zinc-200 font-semibold">Room not found</p>
+          <p className="text-zinc-600 text-sm max-w-xs">
+            This room no longer exists, or the server was restarted.
+          </p>
+        </div>
+        <Button onClick={() => router.push('/')} className="bg-violet-600 hover:bg-violet-500 text-white h-9 px-5 text-sm">
+          Back to Home
+        </Button>
+      </div>
+    )
+  }
+
   if (!room && !showJoinDialog) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#0f1929' }}>
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3" style={{ backgroundColor: '#0f1929' }}>
+        <div className="w-5 h-5 rounded-full border-2 border-zinc-700 border-t-violet-500 animate-spin" />
         <span className="text-zinc-600 text-sm">Connecting...</span>
       </div>
     )
@@ -476,7 +549,7 @@ export function RoomView({ roomId }: { roomId: string }) {
                 placeholder="JIRA-123"
                 value={jiraTicket}
                 onChange={(e) => setJiraTicket(e.target.value.toUpperCase())}
-                onFocus={() => setStoryFocused(true)}
+                onFocus={() => { storyFocusedRef.current = true }}
                 onBlur={handleStoryBlur}
                 onKeyDown={(e) => e.key === 'Enter' && storyRef.current?.focus()}
                 className="w-[7.5rem] h-10 text-xs font-mono uppercase tracking-wider text-blue-300 placeholder:text-zinc-700 focus-visible:ring-violet-500/50"
@@ -488,7 +561,7 @@ export function RoomView({ roomId }: { roomId: string }) {
                 placeholder="What are you estimating?"
                 value={story}
                 onChange={(e) => setStory(e.target.value)}
-                onFocus={() => setStoryFocused(true)}
+                onFocus={() => { storyFocusedRef.current = true }}
                 onBlur={handleStoryBlur}
                 onKeyDown={(e) => e.key === 'Enter' && storyRef.current?.blur()}
                 className="flex-1 h-10 text-sm text-zinc-200 placeholder:text-zinc-700 focus-visible:ring-violet-500/50"
@@ -517,7 +590,7 @@ export function RoomView({ roomId }: { roomId: string }) {
                 placeholder="Jira URL (optional) — auto-fills ticket number on paste"
                 value={jiraLink}
                 onChange={(e) => handleLinkChange(e.target.value)}
-                onFocus={() => setStoryFocused(true)}
+                onFocus={() => { storyFocusedRef.current = true }}
                 onBlur={handleStoryBlur}
                 className="flex-1 h-8 text-xs text-zinc-400 placeholder:text-zinc-700 focus-visible:ring-violet-500/50"
                 style={{ backgroundColor: 'rgba(255,255,255,0.03)', borderColor: 'rgba(255,255,255,0.06)' }}
