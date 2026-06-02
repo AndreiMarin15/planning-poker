@@ -55,32 +55,50 @@ interface AvatarPickerProps {
 }
 
 export function AvatarPicker({ name, value, onChange }: AvatarPickerProps) {
-  const seed = name.trim() || 'preview'
+  // Style thumbnails use a fixed seed so they stay stable while the user types.
+  // A separate live preview shows what THEIR avatar actually looks like.
+  const liveSeed = name.trim() || 'anon'
   return (
-    <div className="flex gap-2 flex-wrap">
-      {AVATAR_STYLES.map((s) => (
-        <button
-          key={s.id}
-          type="button"
-          title={s.label}
-          onClick={() => onChange(s.id)}
-          className={cn(
-            'rounded-full transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500',
-            value === s.id
-              ? 'ring-2 ring-violet-500 ring-offset-2 ring-offset-[#172035] scale-110'
-              : 'opacity-50 hover:opacity-90 hover:scale-105',
-          )}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={avatarUrl(seed, s.id)}
-            alt={s.label}
-            width={36}
-            height={36}
-            className="rounded-full"
-          />
-        </button>
-      ))}
+    <div className="flex items-center gap-4">
+      {/* Fixed-seed style options */}
+      <div className="flex gap-2 flex-wrap">
+        {AVATAR_STYLES.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            title={s.label}
+            onClick={() => onChange(s.id)}
+            className={cn(
+              'rounded-full transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500',
+              value === s.id
+                ? 'ring-2 ring-violet-500 ring-offset-2 ring-offset-[#172035] scale-110'
+                : 'opacity-40 hover:opacity-80 hover:scale-105',
+            )}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={avatarUrl(s.id, s.id)} // seed = style id → each style always shows the same character
+              alt={s.label}
+              width={36}
+              height={36}
+              className="rounded-full"
+            />
+          </button>
+        ))}
+      </div>
+
+      {/* Live "your avatar" preview — updates as the name changes */}
+      <div className="flex flex-col items-center gap-1 shrink-0">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={avatarUrl(liveSeed, value)}
+          alt="your avatar"
+          width={44}
+          height={44}
+          className="rounded-full ring-2 ring-violet-500 ring-offset-2 ring-offset-[#172035]"
+        />
+        <span className="text-[10px] text-zinc-600">you</span>
+      </div>
     </div>
   )
 }
