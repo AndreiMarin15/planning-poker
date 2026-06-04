@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,15 +13,37 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog'
-import { Plus, X, Link2, ExternalLink } from 'lucide-react'
+import { Plus, X, Link2, ExternalLink, Upload } from 'lucide-react'
 import { extractJiraTicket, isJiraUrl } from '@/lib/jira'
 import { AvatarPicker, DEFAULT_AVATAR } from '@/components/avatar'
+import { cn } from '@/lib/utils'
+import type { CardTemplate } from '@/lib/types'
+import { CARD_TEMPLATES } from '@/lib/types'
 
 interface DraftTopic {
   id: string
   jiraTicket: string
   jiraLink: string
   title: string
+  description: string
+}
+
+async function parseImportFile(file: File): Promise<DraftTopic[]> {
+  const { read, utils } = await import('xlsx')
+  const buffer = await file.arrayBuffer()
+  const wb = read(buffer, { type: 'array' })
+  const ws = wb.Sheets[wb.SheetNames[0]]
+  const rows = utils.sheet_to_json<Record<string, string>>(ws, { defval: '' })
+  return rows
+    .map((row) => {
+      // Support both Jira export column names and simple column names
+      const title = (row['Summary'] || row['summary'] || row['Title'] || row['title'] || '').trim()
+      const ticket = (row['Issue key'] || row['issue key'] || row['Key'] || row['key'] || row['Ticket'] || row['ticket'] || '').trim().toUpperCase()
+      const link = (row['URL'] || row['url'] || row['Link'] || row['link'] || '').trim()
+      const description = (row['Description'] || row['description'] || '').trim().replace(/![^!\n]+!/g, '').replace(/\n{3,}/g, '\n\n').trim()
+      return { id: crypto.randomUUID(), title, jiraTicket: ticket, jiraLink: link, description }
+    })
+    .filter((t) => t.title)
 }
 
 function setSession(roomId: string, pid: string) {
@@ -44,6 +66,8 @@ export default function Home() {
   const [newJira, setNewJira] = useState('')
   const [newLink, setNewLink] = useState('')
   const [newTitle, setNewTitle] = useState('')
+  const [cardTemplate, setCardTemplate] = useState<CardTemplate>('fibonacci')
+  const importRef = useRef<HTMLInputElement>(null)
 
   // Join state
   const [joinCode, setJoinCode] = useState('')
@@ -64,13 +88,26 @@ export default function Home() {
     if (!newTitle.trim()) return
     setTopics((prev) => [
       ...prev,
-      { id: crypto.randomUUID(), jiraTicket: newJira.trim(), jiraLink: newLink.trim(), title: newTitle.trim() },
+      { id: crypto.randomUUID(), jiraTicket: newJira.trim(), jiraLink: newLink.trim(), title: newTitle.trim(), description: '' },
     ])
     setNewJira(''); setNewLink(''); setNewTitle('')
   }
 
   function removeTopic(id: string) {
     setTopics((prev) => prev.filter((t) => t.id !== id))
+  }
+
+  async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    try {
+      const imported = await parseImportFile(file)
+      if (imported.length === 0) return
+      setTopics((prev) => [...prev, ...imported])
+    } catch {
+      // silently ignore parse errors
+    }
   }
 
   async function handleCreate() {
@@ -84,8 +121,10 @@ export default function Home() {
           roomName: roomName.trim() || `${creatorName.trim()}'s Room`,
           creatorName: creatorName.trim(),
           creatorAvatarStyle: creatorAvatar,
+          cardTemplate,
           initialTopics: topics.map((t) => ({
             title: t.title,
+            description: t.description || undefined,
             jiraTicket: t.jiraTicket || undefined,
             jiraLink: t.jiraLink || undefined,
           })),
@@ -187,11 +226,46 @@ export default function Home() {
 
             <Separator style={{ backgroundColor: 'rgba(255,255,255,0.06)' }} />
 
+            {/* Card template */}
+            <div className="space-y-1.5">
+              <Label className="text-[11px] font-semibold text-zinc-500 uppercase tracking-widest">Card template</Label>
+              <div className="flex gap-2">
+                {(Object.entries(CARD_TEMPLATES) as [CardTemplate, string[]][]).map(([key, vals]) => (
+                  <button
+                    key={key}
+                    onClick={() => setCardTemplate(key)}
+                    className={cn(
+                      'flex-1 flex flex-col items-center gap-1.5 px-3 py-2.5 rounded-xl border text-left transition-all',
+                      cardTemplate === key
+                        ? 'border-violet-500/60 bg-violet-500/10'
+                        : 'border-zinc-700/50 bg-zinc-800/30 hover:border-zinc-600/60',
+                    )}
+                  >
+                    <span className={cn('text-xs font-semibold capitalize', cardTemplate === key ? 'text-violet-300' : 'text-zinc-400')}>
+                      {key === 'fibonacci' ? 'Fibonacci' : 'T-Shirt'}
+                    </span>
+                    <span className="text-[10px] text-zinc-600 font-mono">{vals.slice(0, 5).join(' · ')}…</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <Separator style={{ backgroundColor: 'rgba(255,255,255,0.06)' }} />
+
             {/* Backlog */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <Label className="text-[11px] font-semibold text-zinc-500 uppercase tracking-widest">Backlog</Label>
-                <span className="text-[10px] text-zinc-700">optional — topics to vote on</span>
+                <div className="flex items-center gap-3">
+                  <input ref={importRef} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={handleImportFile} />
+                  <button
+                    onClick={() => importRef.current?.click()}
+                    className="flex items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+                  >
+                    <Upload className="w-3 h-3" />
+                    Import CSV / Excel
+                  </button>
+                </div>
               </div>
 
               {topics.length > 0 && (
