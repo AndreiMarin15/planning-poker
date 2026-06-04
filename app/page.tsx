@@ -19,6 +19,7 @@ import { AvatarPicker, DEFAULT_AVATAR } from '@/components/avatar'
 import { cn } from '@/lib/utils'
 import type { CardTemplate } from '@/lib/types'
 import { CARD_TEMPLATES } from '@/lib/types'
+import { useTheme, THEMES, type ThemeId } from '@/lib/theme'
 
 interface DraftTopic {
   id: string
@@ -54,6 +55,7 @@ function setSession(roomId: string, pid: string) {
 
 export default function Home() {
   const router = useRouter()
+  const { theme, themeId, setTheme } = useTheme()
   const [showCreate, setShowCreate] = useState(false)
   const [showJoin, setShowJoin] = useState(false)
 
@@ -169,17 +171,43 @@ export default function Home() {
   const inputCls = 'text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-violet-500'
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center justify-center px-6">
+    <div
+      className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center justify-center px-6"
+      data-pp-root
+      style={{ '--accent': theme.accent, '--accent-hover': theme.hover, '--accent-muted': theme.muted, '--accent-ring': theme.ring } as React.CSSProperties}
+    >
+      <style>{`
+        [data-pp-root] [class*="ring-violet"]:focus-visible,
+        [data-pp-root] [class*="ring-violet"]:focus { --tw-ring-color: var(--accent-ring) !important; }
+      `}</style>
+
       <div className="mb-10 text-center space-y-4">
-        <div className="text-4xl text-violet-400 font-black">◈</div>
+        <div className="text-4xl font-black" style={{ color: 'var(--accent)' }}>◈</div>
         <div className="space-y-1.5">
           <h1 className="text-2xl font-bold text-zinc-100 tracking-tight">Planning Poker</h1>
           <p className="text-zinc-600 text-sm">Estimate together. Real-time, no account needed.</p>
         </div>
       </div>
 
+      {/* Theme picker */}
+      <div className="flex items-center gap-2 mb-6">
+        {THEMES.map((t) => (
+          <button
+            key={t.id}
+            title={t.label}
+            onClick={() => setTheme(t.id as ThemeId)}
+            className="w-4 h-4 rounded-full transition-transform hover:scale-125"
+            style={{
+              backgroundColor: t.accent,
+              outline: themeId === t.id ? `2px solid ${t.accent}` : '2px solid transparent',
+              outlineOffset: 2,
+            }}
+          />
+        ))}
+      </div>
+
       <div className="flex flex-col sm:flex-row gap-2.5 w-full max-w-[17rem]">
-        <Button onClick={() => setShowCreate(true)} className="flex-1 bg-violet-600 hover:bg-violet-500 text-white h-10 text-sm font-semibold">
+        <Button onClick={() => setShowCreate(true)} className="flex-1 text-white h-10 text-sm font-semibold" style={{ backgroundColor: 'var(--accent)' }}>
           Create Room
         </Button>
         <Button onClick={() => setShowJoin(true)} variant="outline" className="flex-1 border-zinc-800 text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100 h-10 text-sm">
@@ -236,12 +264,13 @@ export default function Home() {
                     onClick={() => setCardTemplate(key)}
                     className={cn(
                       'flex-1 flex flex-col items-center gap-1.5 px-3 py-2.5 rounded-xl border text-left transition-all',
-                      cardTemplate === key
-                        ? 'border-violet-500/60 bg-violet-500/10'
-                        : 'border-zinc-700/50 bg-zinc-800/30 hover:border-zinc-600/60',
+                      cardTemplate === key ? '' : 'border-zinc-700/50 bg-zinc-800/30 hover:border-zinc-600/60',
                     )}
+                    style={cardTemplate === key
+                      ? { borderColor: 'var(--accent)', backgroundColor: 'var(--accent-muted)' }
+                      : {}}
                   >
-                    <span className={cn('text-xs font-semibold capitalize', cardTemplate === key ? 'text-violet-300' : 'text-zinc-400')}>
+                    <span className="text-xs font-semibold capitalize" style={{ color: cardTemplate === key ? 'var(--accent)' : '#a1a1aa' }}>
                       {key === 'fibonacci' ? 'Fibonacci' : 'T-Shirt'}
                     </span>
                     <span className="text-[10px] text-zinc-600 font-mono">{vals.slice(0, 5).join(' · ')}…</span>
@@ -271,19 +300,19 @@ export default function Home() {
               {topics.length > 0 && (
                 <div className="space-y-1.5">
                   {topics.map((t, i) => (
-                    <div key={t.id} className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm"
+                    <div key={t.id} className="flex items-start gap-2.5 px-3 py-2.5 rounded-lg text-sm"
                       style={{ backgroundColor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                      <span className="text-zinc-600 text-[11px] font-mono w-4 shrink-0">{i + 1}</span>
+                      <span className="text-zinc-600 text-[11px] font-mono w-4 shrink-0 pt-0.5">{i + 1}</span>
                       {t.jiraTicket && (
                         t.jiraLink
                           ? <a href={t.jiraLink} target="_blank" rel="noopener noreferrer"
-                              className="text-blue-400 font-mono text-[11px] font-bold shrink-0 hover:underline flex items-center gap-0.5">
+                              className="text-blue-400 font-mono text-[11px] font-bold shrink-0 hover:underline flex items-center gap-0.5 pt-0.5">
                               {t.jiraTicket}<ExternalLink className="w-2.5 h-2.5 opacity-60" />
                             </a>
-                          : <span className="text-blue-400 font-mono text-[11px] font-bold shrink-0">{t.jiraTicket}</span>
+                          : <span className="text-blue-400 font-mono text-[11px] font-bold shrink-0 pt-0.5">{t.jiraTicket}</span>
                       )}
-                      <span className="text-zinc-300 flex-1 truncate">{t.title}</span>
-                      <button onClick={() => removeTopic(t.id)} className="text-zinc-700 hover:text-zinc-400 transition-colors shrink-0">
+                      <span className="text-zinc-300 flex-1 break-words leading-snug min-w-0">{t.title}</span>
+                      <button onClick={() => removeTopic(t.id)} className="text-zinc-700 hover:text-zinc-400 transition-colors shrink-0 pt-0.5">
                         <X className="w-3.5 h-3.5" />
                       </button>
                     </div>
@@ -302,7 +331,8 @@ export default function Home() {
                     onKeyDown={(e) => e.key === 'Enter' && addTopic()}
                     className={`flex-1 h-8 text-xs ${inputCls}`} style={inputStyle} />
                   <Button onClick={addTopic} disabled={!newTitle.trim()} size="sm" variant="ghost"
-                    className="h-8 w-8 p-0 bg-violet-600/20 hover:bg-violet-600/40 text-violet-400 border border-violet-600/30 shrink-0">
+                    className="h-8 w-8 p-0 border shrink-0"
+                    style={{ color: 'var(--accent)', borderColor: 'var(--accent)', backgroundColor: 'var(--accent-muted)' }}>
                     <Plus className="w-3.5 h-3.5" />
                   </Button>
                 </div>
@@ -319,7 +349,8 @@ export default function Home() {
             <Separator style={{ backgroundColor: 'rgba(255,255,255,0.06)' }} />
 
             <Button onClick={handleCreate} disabled={!creatorName.trim() || creating}
-              className="w-full bg-violet-600 hover:bg-violet-500 text-white h-10 text-sm font-semibold">
+              className="w-full text-white h-10 text-sm font-semibold"
+              style={{ backgroundColor: 'var(--accent)' }}>
               {creating ? 'Creating…' : `Create Room${topics.length > 0 ? ` · ${topics.length} topic${topics.length > 1 ? 's' : ''}` : ''}`}
             </Button>
           </div>
@@ -356,7 +387,8 @@ export default function Home() {
             </div>
             {joinError && <p className="text-red-400 text-xs">{joinError}</p>}
             <Button onClick={handleJoin} disabled={!joinCode.trim() || !joinName.trim() || joining}
-              className="w-full bg-violet-600 hover:bg-violet-500 text-white h-10 text-sm font-semibold">
+              className="w-full text-white h-10 text-sm font-semibold"
+              style={{ backgroundColor: 'var(--accent)' }}>
               {joining ? 'Joining…' : 'Join Room'}
             </Button>
           </div>

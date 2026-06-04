@@ -26,6 +26,7 @@ import { cn } from '@/lib/utils'
 import { extractJiraTicket, isJiraUrl } from '@/lib/jira'
 import { AvatarImg, AvatarPicker, DEFAULT_AVATAR, type AvatarStyleId } from '@/components/avatar'
 import { useRoomStore } from '@/lib/room-store'
+import { useTheme, THEMES, type ThemeId } from '@/lib/theme'
 
 // ── Cookie session helpers ────────────────────────────────────────────────────
 
@@ -156,7 +157,7 @@ function TableCard({
       )}
       <div className="flex flex-col items-center gap-1">
         <AvatarImg name={name} style={avatarStyle} size={28} isMe={isMe} />
-        <span className={cn('text-[12px] font-semibold leading-none', isMe ? 'text-violet-300' : 'text-zinc-300')}>
+        <span className="text-[12px] font-semibold leading-none" style={isMe ? { color: 'var(--accent)' } : { color: '#d4d4d8' }}>
           {name}
         </span>
       </div>
@@ -294,6 +295,9 @@ function HistoryEntryRow({ entry }: { entry: HistoryEntry }) {
 
 export function RoomView({ roomId }: { roomId: string }) {
   const router = useRouter()
+
+  // ── Theme (per-user, localStorage) ──
+  const { theme, themeId, setTheme } = useTheme()
 
   // ── Zustand ──
   const room = useRoomStore((s) => s.room)
@@ -597,7 +601,7 @@ export function RoomView({ roomId }: { roomId: string }) {
           <p className="text-zinc-200 font-semibold">Room not found</p>
           <p className="text-zinc-600 text-sm max-w-xs">This room no longer exists, or the server was restarted.</p>
         </div>
-        <Button onClick={() => router.push('/')} className="bg-violet-600 hover:bg-violet-500 text-white h-9 px-5 text-sm">
+        <Button onClick={() => router.push('/')} className="text-white h-9 px-5 text-sm" style={{ backgroundColor: 'var(--accent)' }}>
           Back to Home
         </Button>
       </div>
@@ -716,22 +720,21 @@ export function RoomView({ roomId }: { roomId: string }) {
           <button
             onClick={() => setShowStoryDetails((v) => !v)}
             title="Jira URL & description"
-            className={cn(
-              'h-10 w-10 flex items-center justify-center rounded-md border transition-colors shrink-0',
-              showStoryDetails
-                ? 'text-violet-400 border-violet-500/40 bg-violet-500/10'
-                : 'text-zinc-600 border-zinc-700/50 hover:text-zinc-300 hover:border-zinc-600',
-            )}
+            className="h-10 w-10 flex items-center justify-center rounded-md border transition-colors shrink-0"
+            style={showStoryDetails
+              ? { color: 'var(--accent)', borderColor: 'var(--accent)', backgroundColor: 'var(--accent-muted)' }
+              : { color: '#52525b', borderColor: 'rgba(63,63,70,0.5)' }}
           >
             <Link2 className="w-3.5 h-3.5" />
           </button>
           {/* Reveal / reset */}
           {room?.phase === 'voting' ? (
             <Button onClick={handleReveal} disabled={votedCount === 0}
-              className="h-10 px-4 bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold shrink-0 gap-2">
+              className="h-10 px-4 text-white text-sm font-semibold shrink-0 gap-2"
+              style={{ backgroundColor: 'var(--accent)' }}>
               <Eye className="w-3.5 h-3.5" />
               Reveal
-              {votedCount > 0 && <span className="font-mono text-violet-300 text-xs ml-0.5">{votedCount}/{totalCount}</span>}
+              {votedCount > 0 && <span className="font-mono text-xs ml-0.5 opacity-75">{votedCount}/{totalCount}</span>}
             </Button>
           ) : (
             <Button onClick={handleReset} variant="ghost"
@@ -808,7 +811,26 @@ export function RoomView({ roomId }: { roomId: string }) {
   // ── Render ────────────────────────────────────────────────────────────────────
 
   return (
-    <div className="h-dvh flex flex-col text-white overflow-hidden" style={{ backgroundColor: '#0f1929' }}>
+    <div
+      data-pp-root
+      className="h-dvh flex flex-col text-white overflow-hidden"
+      style={{
+        backgroundColor: '#0f1929',
+        '--accent': theme.accent,
+        '--accent-hover': theme.hover,
+        '--accent-muted': theme.muted,
+        '--accent-ring': theme.ring,
+      } as React.CSSProperties}
+    >
+
+      {/* Dynamic accent color overrides for focus rings */}
+      <style>{`
+        [data-pp-root] *:focus-visible { outline-color: var(--accent) !important; }
+        [data-pp-root] .focus-visible\\:ring-violet-500:focus-visible,
+        [data-pp-root] .focus\\:ring-violet-500:focus,
+        [data-pp-root] [class*="ring-violet"]:focus-visible,
+        [data-pp-root] [class*="ring-violet"]:focus { --tw-ring-color: var(--accent-ring) !important; }
+      `}</style>
 
       {/* Flying emoji overlay */}
       <AnimatePresence>
@@ -891,11 +913,11 @@ export function RoomView({ roomId }: { roomId: string }) {
                     onClick={() => setJoinRole(r)}
                     className={cn(
                       'flex-1 flex flex-col items-center gap-1 py-2.5 rounded-lg border text-xs font-semibold transition-colors',
-                      joinRole === r
-                        ? 'border-violet-500/60 bg-violet-500/10 text-violet-300'
-                        : 'border-zinc-700/50 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300',
+                      joinRole === r ? '' : 'border-zinc-700/50 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300',
                     )}
-                    style={joinRole !== r ? { backgroundColor: 'rgba(255,255,255,0.03)' } : {}}
+                    style={joinRole === r
+                      ? { borderColor: 'var(--accent)', backgroundColor: 'var(--accent-muted)', color: 'var(--accent)' }
+                      : { backgroundColor: 'rgba(255,255,255,0.03)' }}
                   >
                     <span className="text-base">{r === 'voter' ? '🗳️' : '👀'}</span>
                     <span className="capitalize">{r}</span>
@@ -907,7 +929,8 @@ export function RoomView({ roomId }: { roomId: string }) {
               </div>
             </div>
             <Button onClick={handleJoin} disabled={!joinName.trim() || joining}
-              className="w-full bg-violet-600 hover:bg-violet-500 text-white h-10 text-sm font-semibold">
+              className="w-full text-white h-10 text-sm font-semibold"
+              style={{ backgroundColor: 'var(--accent)' }}>
               {joining ? 'Joining...' : 'Join Session'}
             </Button>
           </div>
@@ -919,7 +942,7 @@ export function RoomView({ roomId }: { roomId: string }) {
         style={{ backgroundColor: 'rgba(12,21,37,0.85)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
         <div className="px-5 h-14 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
-            <span className="text-violet-400 font-black text-base shrink-0">◈</span>
+            <span className="font-black text-base shrink-0" style={{ color: 'var(--accent)' }}>◈</span>
             <span className="font-semibold text-sm text-zinc-100 truncate">{room?.name}</span>
             <span className="hidden sm:block w-px h-3.5 shrink-0" style={{ backgroundColor: 'rgba(255,255,255,0.08)' }} />
             <button onClick={handleCopyCode} className="hidden sm:flex items-center gap-1.5 text-zinc-600 hover:text-zinc-300 transition-colors">
@@ -927,9 +950,28 @@ export function RoomView({ roomId }: { roomId: string }) {
               <span className="font-mono text-xs tracking-widest">{roomId}</span>
             </button>
           </div>
-          <button onClick={handleLeave} className="flex items-center gap-1.5 text-zinc-600 hover:text-zinc-300 text-xs transition-colors py-2 px-1 -mr-1">
-            Leave <LogOut className="w-3.5 h-3.5" />
-          </button>
+          <div className="flex items-center gap-3">
+            {/* Theme picker */}
+            <div className="hidden sm:flex items-center gap-1.5">
+              {THEMES.map((t) => (
+                <button
+                  key={t.id}
+                  title={t.label}
+                  onClick={() => setTheme(t.id as ThemeId)}
+                  className="w-3.5 h-3.5 rounded-full transition-transform hover:scale-125"
+                  style={{
+                    backgroundColor: t.accent,
+                    outline: themeId === t.id ? `2px solid ${t.accent}` : '2px solid transparent',
+                    outlineOffset: 2,
+                  }}
+                />
+              ))}
+            </div>
+            <span className="hidden sm:block w-px h-4 shrink-0" style={{ backgroundColor: 'rgba(255,255,255,0.08)' }} />
+            <button onClick={handleLeave} className="flex items-center gap-1.5 text-zinc-600 hover:text-zinc-300 text-xs transition-colors py-2 px-1 -mr-1">
+              Leave <LogOut className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       </header>
 
@@ -963,8 +1005,9 @@ export function RoomView({ roomId }: { roomId: string }) {
                 onClick={() => setMobileTab(id)}
                 className={cn(
                   'flex-1 flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-semibold transition-colors',
-                  mobileTab === id ? 'text-violet-400' : 'text-zinc-600 hover:text-zinc-400',
+                  mobileTab === id ? '' : 'text-zinc-600 hover:text-zinc-400',
                 )}
+                style={mobileTab === id ? { color: 'var(--accent)' } : {}}
               >
                 <div className="relative">
                   <Icon className="w-5 h-5" />
@@ -996,11 +1039,10 @@ export function RoomView({ roomId }: { roomId: string }) {
                 key={tab}
                 onClick={() => setSidebarTab(tab)}
                 className={cn(
-                  'flex-1 flex items-center justify-center gap-1.5 h-11 text-xs font-semibold transition-colors capitalize',
-                  sidebarTab === tab
-                    ? 'text-zinc-100 border-b-2 border-violet-500'
-                    : 'text-zinc-600 hover:text-zinc-400 border-b-2 border-transparent',
+                  'flex-1 flex items-center justify-center gap-1.5 h-11 text-xs font-semibold transition-colors capitalize border-b-2',
+                  sidebarTab === tab ? 'text-zinc-100' : 'text-zinc-600 hover:text-zinc-400 border-transparent',
                 )}
+                style={sidebarTab === tab ? { borderColor: 'var(--accent)' } : {}}
               >
                 {tab}
                 {tab === 'queue' && (room?.topics.length ?? 0) > 0 && (
@@ -1051,7 +1093,8 @@ function TopicRow({ topic: t, isModerator, onStart, onRemove }: {
               <span
                 role="button"
                 onClick={(e) => { e.stopPropagation(); onStart(t.id) }}
-                className="flex items-center gap-1 text-[11px] text-violet-400 hover:text-violet-300 font-semibold transition-colors"
+                className="flex items-center gap-1 text-[11px] font-semibold transition-colors opacity-90 hover:opacity-100"
+                style={{ color: 'var(--accent)' }}
               >
                 <Play className="w-3 h-3" />
                 Vote
@@ -1145,7 +1188,8 @@ function SidebarQueuePanel({
               style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.08)' }}
             />
             <Button onClick={handleAddTopic} disabled={!newTopicTitle.trim()} size="sm"
-              className="h-8 px-2 bg-violet-600/20 hover:bg-violet-600/40 text-violet-400 border border-violet-600/30 text-xs shrink-0">
+              className="h-8 px-2 text-xs shrink-0 border"
+              style={{ color: 'var(--accent)', borderColor: 'var(--accent)', backgroundColor: 'var(--accent-muted)' }}>
               Add
             </Button>
           </div>
