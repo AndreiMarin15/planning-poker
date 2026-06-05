@@ -264,16 +264,20 @@ export default function Home() {
                     onClick={() => setCardTemplate(key)}
                     className={cn(
                       'flex-1 flex flex-col items-center gap-1.5 px-3 py-2.5 rounded-xl border text-left transition-all',
-                      cardTemplate === key ? '' : 'border-zinc-700/50 bg-zinc-800/30 hover:border-zinc-600/60',
+                      cardTemplate === key ? 'border-zinc-700/50' : 'border-zinc-700/50 bg-zinc-800/30 hover:border-zinc-600/60',
                     )}
                     style={cardTemplate === key
-                      ? { borderColor: 'var(--accent)', backgroundColor: 'var(--accent-muted)' }
+                      ? { borderLeftColor: 'var(--accent)', borderLeftWidth: 3, backgroundColor: 'rgba(255,255,255,0.05)' }
                       : {}}
                   >
-                    <span className="text-xs font-semibold capitalize" style={{ color: cardTemplate === key ? 'var(--accent)' : '#a1a1aa' }}>
+                    <span className="text-xs font-semibold capitalize"
+                      style={{ color: cardTemplate === key ? '#ffffff' : '#d4d4d8' }}>
                       {key === 'fibonacci' ? 'Fibonacci' : 'T-Shirt'}
                     </span>
-                    <span className="text-[10px] text-zinc-600 font-mono">{vals.slice(0, 5).join(' · ')}…</span>
+                    <span className="text-[10px] font-mono"
+                      style={{ color: cardTemplate === key ? '#a1a1aa' : '#71717a' }}>
+                      {vals.slice(0, 5).join(' · ')}…
+                    </span>
                   </button>
                 ))}
               </div>
