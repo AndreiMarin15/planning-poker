@@ -323,9 +323,7 @@ export function RoomView({ roomId }: { roomId: string }) {
   const [storyDescription, setStoryDescription] = useState('')
   const storyFocusedRef = useRef(false)
 
-  // Emoji
-  interface ActiveThrow { id: string; emoji: string; startX: number; startY: number; dx: number; dy: number }
-  const [activeThrows, setActiveThrows] = useState<ActiveThrow[]>([])
+  // Emoji throws are handled imperatively via WAAPI — no React state needed
   const [fullPickerTarget, setFullPickerTarget] = useState<Participant | null>(null)
   const [lastEmoji, setLastEmoji] = useState<string | null>(() =>
     typeof localStorage !== 'undefined' ? localStorage.getItem('pp_last_emoji') : null
@@ -382,27 +380,59 @@ export function RoomView({ roomId }: { roomId: string }) {
     es.addEventListener('emoji', (e) => {
       const data: EmojiThrow = JSON.parse((e as MessageEvent).data)
       if (data.toId === pid) toast(`Someone threw ${data.emoji} at you!`, { duration: 2500 })
-      const toEl = document.querySelector<HTMLElement>(`[data-pid="${data.toId}"]`)
-      if (!toEl) return
-      const tr = toEl.getBoundingClientRect()
-      const fromEl = document.querySelector<HTMLElement>(`[data-pid="${data.fromId}"]`)
-      let startX: number, startY: number
-      if (fromEl) {
-        const fr = fromEl.getBoundingClientRect()
-        startX = fr.left + fr.width / 2
-        startY = fr.top + fr.height / 2
-      } else {
-        const fromSide = Math.random() < 0.5 ? 'left' : 'right'
-        startX = fromSide === 'left' ? Math.random() * 80 : window.innerWidth - Math.random() * 80
-        startY = tr.top + tr.height / 2 + (Math.random() - 0.5) * window.innerHeight * 0.4
+
+      // querySelectorAll because tablePaneContent renders in both mobile and desktop DOM;
+      // pick the visible instance (non-zero bounding rect)
+      const visibleEl = (selector: string) => {
+        const els = document.querySelectorAll<HTMLElement>(selector)
+        for (const el of els) {
+          const r = el.getBoundingClientRect()
+          if (r.width > 0 && r.height > 0) return { el, r }
+        }
+        return null
       }
-      const t: ActiveThrow = {
-        id: data.id, emoji: data.emoji, startX, startY,
-        dx: tr.left + tr.width / 2 - startX,
-        dy: tr.top + tr.height / 2 - startY,
-      }
-      setActiveThrows((prev) => [...prev, t])
-      setTimeout(() => setActiveThrows((prev) => prev.filter((x) => x.id !== t.id)), 1400)
+
+      const toMatch = visibleEl(`[data-pid="${data.toId}"]`)
+      if (!toMatch) return
+      const toX = toMatch.r.left + toMatch.r.width / 2
+      const toY = toMatch.r.top + toMatch.r.height / 2
+
+      let fromX: number, fromY: number
+      const side = Math.floor(Math.random() * 4) // 0=left, 1=right, 2=top, 3=bottom
+      if (side === 0) { fromX = -40; fromY = Math.random() * window.innerHeight }
+      else if (side === 1) { fromX = window.innerWidth + 40; fromY = Math.random() * window.innerHeight }
+      else if (side === 2) { fromX = Math.random() * window.innerWidth; fromY = -40 }
+      else { fromX = Math.random() * window.innerWidth; fromY = window.innerHeight + 40 }
+
+      const midX = (fromX + toX) / 2
+      const arcY = Math.min(fromY, toY) - Math.abs(toX - fromX) * 0.3 - 80
+
+      console.log('[emoji-throw]', { fromX, fromY, toX, toY, midX, arcY, toFound: !!toMatch })
+
+      const el = document.createElement('div')
+      el.textContent = data.emoji
+      el.style.cssText = `
+        position: fixed;
+        left: 0; top: 0;
+        font-size: 2rem;
+        line-height: 1;
+        pointer-events: none;
+        user-select: none;
+        z-index: 9999;
+        will-change: transform, opacity;
+      `
+      document.body.appendChild(el)
+
+      el.animate(
+        [
+          { transform: `translate(${fromX}px, ${fromY}px) translate(-50%, -50%) scale(0.5) rotate(0deg)`,  opacity: 0 },
+          { transform: `translate(${fromX}px, ${fromY}px) translate(-50%, -50%) scale(1.0) rotate(10deg)`, opacity: 1, offset: 0.08 },
+          { transform: `translate(${midX}px,  ${arcY}px)  translate(-50%, -50%) scale(1.4) rotate(25deg)`, opacity: 1, offset: 0.5 },
+          { transform: `translate(${toX}px,   ${toY}px)   translate(-50%, -50%) scale(1.8) rotate(5deg)`,  opacity: 1, offset: 0.82 },
+          { transform: `translate(${toX}px,   ${toY}px)   translate(-50%, -50%) scale(0)   rotate(0deg)`,  opacity: 0 },
+        ],
+        { duration: 1300, easing: 'ease-in-out', fill: 'forwards' }
+      ).onfinish = () => el.remove()
     })
 
     esRef.current = es
@@ -870,34 +900,6 @@ export function RoomView({ roomId }: { roomId: string }) {
         onChange={handleSidebarImport}
       />
 
-      {/* Flying emoji overlay */}
-      <AnimatePresence>
-        {activeThrows.map((t) => {
-          const arc = -Math.min(Math.abs(t.dy) * 0.4 + 60, 160)
-          return (
-            <motion.div
-              key={t.id}
-              initial={{ x: t.startX, y: t.startY, scale: 0.6, opacity: 0, rotate: 0 }}
-              animate={{
-                x: [t.startX, t.startX + t.dx * 0.75, t.startX + t.dx, t.startX + t.dx],
-                y: [t.startY, t.startY + t.dy * 0.75 + arc, t.startY + t.dy, t.startY + t.dy],
-                scale: [0.6, 1.4, 2, 0],
-                opacity: [0, 1, 1, 0],
-                rotate: [0, 20, 5, 0],
-              }}
-              transition={{ duration: 1.3, ease: [0.25, 0.46, 0.45, 0.94], times: [0, 0.55, 0.82, 1] }}
-              style={{
-                position: 'fixed', left: 0, top: 0,
-                translateX: '-50%', translateY: '-50%',
-                fontSize: '2rem', zIndex: 9999,
-                pointerEvents: 'none', userSelect: 'none', lineHeight: 1,
-              }}
-            >
-              {t.emoji}
-            </motion.div>
-          )
-        })}
-      </AnimatePresence>
 
       {/* Full emoji picker overlay */}
       {fullPickerTarget && (
