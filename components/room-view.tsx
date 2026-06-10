@@ -20,10 +20,11 @@ import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
 import {
   Copy, Check, Eye, RotateCcw, LogOut, ChevronDown, Plus, X,
-  Play, Link2, ExternalLink, Download, LayoutList, History, Table2,
+  Play, Link2, ExternalLink, Download, LayoutList, History, Table2, Upload,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { extractJiraTicket, isJiraUrl } from '@/lib/jira'
+import { parseImportFile } from '@/lib/import'
 import { AvatarImg, AvatarPicker, DEFAULT_AVATAR, type AvatarStyleId } from '@/components/avatar'
 import { useRoomStore } from '@/lib/room-store'
 import { useTheme, THEMES, type ThemeId } from '@/lib/theme'
@@ -342,6 +343,7 @@ export function RoomView({ roomId }: { roomId: string }) {
 
   const storyRef = useRef<HTMLInputElement>(null)
   const esRef = useRef<EventSource | null>(null)
+  const sidebarImportRef = useRef<HTMLInputElement>(null)
 
   const myVote = room && participantId ? room.votes[participantId] : undefined
   const isModerator = room && participantId ? room.moderatorId === participantId : false
@@ -383,9 +385,17 @@ export function RoomView({ roomId }: { roomId: string }) {
       const toEl = document.querySelector<HTMLElement>(`[data-pid="${data.toId}"]`)
       if (!toEl) return
       const tr = toEl.getBoundingClientRect()
-      const fromSide = Math.random() < 0.5 ? 'left' : 'right'
-      const startX = fromSide === 'left' ? Math.random() * 80 : window.innerWidth - Math.random() * 80
-      const startY = tr.top + tr.height / 2 + (Math.random() - 0.5) * window.innerHeight * 0.4
+      const fromEl = document.querySelector<HTMLElement>(`[data-pid="${data.fromId}"]`)
+      let startX: number, startY: number
+      if (fromEl) {
+        const fr = fromEl.getBoundingClientRect()
+        startX = fr.left + fr.width / 2
+        startY = fr.top + fr.height / 2
+      } else {
+        const fromSide = Math.random() < 0.5 ? 'left' : 'right'
+        startX = fromSide === 'left' ? Math.random() * 80 : window.innerWidth - Math.random() * 80
+        startY = tr.top + tr.height / 2 + (Math.random() - 0.5) * window.innerHeight * 0.4
+      }
       const t: ActiveThrow = {
         id: data.id, emoji: data.emoji, startX, startY,
         dx: tr.left + tr.width / 2 - startX,
@@ -535,6 +545,24 @@ export function RoomView({ roomId }: { roomId: string }) {
     setNewTopicDescription(''); setShowAddTopic(false)
   }
 
+  async function handleSidebarImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    try {
+      const imported = await parseImportFile(file)
+      if (imported.length === 0) return
+      for (const t of imported) {
+        await fetch(`/api/rooms/${roomId}/topics`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: t.title, jiraTicket: t.jiraTicket, jiraLink: t.jiraLink, description: t.description }),
+        })
+      }
+    } catch {
+      // silently ignore parse errors
+    }
+  }
+
   function handleLeave() {
     clearSession(roomId)
     if (participantId) {
@@ -647,6 +675,7 @@ export function RoomView({ roomId }: { roomId: string }) {
     newTopicLink,
     newTopicDescription, setNewTopicDescription,
     handleAddTopic, handleTopicLinkChange, handleStartTopic, handleRemoveTopic,
+    onImportClick: () => sidebarImportRef.current?.click(),
   }
 
   // ── Table pane (shared between mobile and desktop main) ───────────────────────
@@ -832,6 +861,15 @@ export function RoomView({ roomId }: { roomId: string }) {
         [data-pp-root] [class*="ring-violet"]:focus { --tw-ring-color: var(--accent-ring) !important; }
       `}</style>
 
+      {/* Hidden file input for sidebar bulk import */}
+      <input
+        ref={sidebarImportRef}
+        type="file"
+        accept=".csv,.xlsx,.xls"
+        className="hidden"
+        onChange={handleSidebarImport}
+      />
+
       {/* Flying emoji overlay */}
       <AnimatePresence>
         {activeThrows.map((t) => {
@@ -913,11 +951,10 @@ export function RoomView({ roomId }: { roomId: string }) {
                     onClick={() => setJoinRole(r)}
                     className={cn(
                       'flex-1 flex flex-col items-center gap-1 py-2.5 rounded-lg border text-xs font-semibold transition-colors',
-                      joinRole === r ? '' : 'border-zinc-700/50 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300',
+                      joinRole === r
+                        ? 'border-white/70 bg-white/10 text-white'
+                        : 'border-zinc-700/50 bg-white/[0.03] text-zinc-500 hover:border-zinc-600 hover:text-zinc-300',
                     )}
-                    style={joinRole === r
-                      ? { borderColor: 'var(--accent)', backgroundColor: 'var(--accent-muted)', color: 'var(--accent)' }
-                      : { backgroundColor: 'rgba(255,255,255,0.03)' }}
                   >
                     <span className="text-base">{r === 'voter' ? '🗳️' : '👀'}</span>
                     <span className="capitalize">{r}</span>
@@ -1133,6 +1170,7 @@ function SidebarQueuePanel({
   newTopicLink,
   newTopicDescription, setNewTopicDescription,
   handleAddTopic, handleTopicLinkChange, handleStartTopic, handleRemoveTopic,
+  onImportClick,
 }: {
   room: Room | null
   isModerator: boolean
@@ -1146,6 +1184,7 @@ function SidebarQueuePanel({
   handleTopicLinkChange: (v: string) => void
   handleStartTopic: (id: string) => void
   handleRemoveTopic: (id: string) => void
+  onImportClick: () => void
 }) {
   return (
     <div>
@@ -1157,13 +1196,23 @@ function SidebarQueuePanel({
               ? `${room!.topics.length} topic${room!.topics.length > 1 ? 's' : ''}`
               : 'No topics queued'}
           </span>
-          <button
-            onClick={() => setShowAddTopic((v) => !v)}
-            className="flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors"
-          >
-            <Plus className="w-3 h-3" />
-            Add
-          </button>
+          <div className="flex items-center gap-2.5">
+            <button
+              onClick={onImportClick}
+              className="flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors"
+              title="Import from CSV / Excel"
+            >
+              <Upload className="w-3 h-3" />
+              Import
+            </button>
+            <button
+              onClick={() => setShowAddTopic((v) => !v)}
+              className="flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors"
+            >
+              <Plus className="w-3 h-3" />
+              Add
+            </button>
+          </div>
         </div>
       )}
 
