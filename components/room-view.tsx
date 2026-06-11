@@ -106,7 +106,7 @@ function TableCard({
       <div
         className="flex items-center gap-px px-2 py-1.5 rounded-full z-30 transition-opacity duration-150"
         style={{
-          backgroundColor: 'rgba(10,18,35,0.96)',
+          backgroundColor: 'var(--surface2)',
           border: '1px solid rgba(255,255,255,0.11)',
           opacity: hovered && canThrow ? 1 : 0,
           pointerEvents: hovered && canThrow ? 'auto' : 'none',
@@ -147,7 +147,7 @@ function TableCard({
             voted && !revealed && 'border-blue-400/20',
             revealed && 'border-slate-500/30',
           )}
-          style={revealed ? { backgroundColor: '#1a2e4a' } : voted ? VOTED_STYLE : { backgroundColor: 'rgba(82,82,91,0.45)' }}
+          style={revealed ? { backgroundColor: 'var(--surface2)' } : voted ? VOTED_STYLE : { backgroundColor: 'rgba(82,82,91,0.45)' }}
         >
           {revealed && (
             <div className="absolute inset-0 flex items-center justify-center">
@@ -397,24 +397,19 @@ export function RoomView({ roomId }: { roomId: string }) {
       const toX = toMatch.r.left + toMatch.r.width / 2
       const toY = toMatch.r.top + toMatch.r.height / 2
 
-      let fromX: number, fromY: number
-      const side = Math.floor(Math.random() * 4) // 0=left, 1=right, 2=top, 3=bottom
-      if (side === 0) { fromX = -40; fromY = Math.random() * window.innerHeight }
-      else if (side === 1) { fromX = window.innerWidth + 40; fromY = Math.random() * window.innerHeight }
-      else if (side === 2) { fromX = Math.random() * window.innerWidth; fromY = -40 }
-      else { fromX = Math.random() * window.innerWidth; fromY = window.innerHeight + 40 }
+      const fromLeft = Math.random() < 0.5
+      const fromX = fromLeft ? -40 : window.innerWidth + 40
+      const fromY = window.innerHeight / 2
 
-      const midX = (fromX + toX) / 2
-      const arcY = Math.min(fromY, toY) - Math.abs(toX - fromX) * 0.3 - 80
+      const arcY = -Math.min(Math.abs(toX - fromX) * 0.15 + 40, 120)
 
-      console.log('[emoji-throw]', { fromX, fromY, toX, toY, midX, arcY, toFound: !!toMatch })
 
       const el = document.createElement('div')
       el.textContent = data.emoji
       el.style.cssText = `
         position: fixed;
         left: 0; top: 0;
-        font-size: 2rem;
+        font-size: 1.3rem;
         line-height: 1;
         pointer-events: none;
         user-select: none;
@@ -423,15 +418,19 @@ export function RoomView({ roomId }: { roomId: string }) {
       `
       document.body.appendChild(el)
 
+      // spin direction matches throw direction for natural feel
+      const spin = fromLeft ? 1 : -1
+      const t = (p: number) => `translate(${fromX + (toX - fromX) * p}px, ${fromY + (toY - fromY) * p + arcY * Math.sin(Math.PI * p)}px) translate(-50%,-50%)`
       el.animate(
         [
-          { transform: `translate(${fromX}px, ${fromY}px) translate(-50%, -50%) scale(0.5) rotate(0deg)`,  opacity: 0 },
-          { transform: `translate(${fromX}px, ${fromY}px) translate(-50%, -50%) scale(1.0) rotate(10deg)`, opacity: 1, offset: 0.08 },
-          { transform: `translate(${midX}px,  ${arcY}px)  translate(-50%, -50%) scale(1.4) rotate(25deg)`, opacity: 1, offset: 0.5 },
-          { transform: `translate(${toX}px,   ${toY}px)   translate(-50%, -50%) scale(1.8) rotate(5deg)`,  opacity: 1, offset: 0.82 },
-          { transform: `translate(${toX}px,   ${toY}px)   translate(-50%, -50%) scale(0)   rotate(0deg)`,  opacity: 0 },
+          { transform: `${t(0)} scale(0.4) rotate(${spin * 0}deg)`,   opacity: 0,   offset: 0    },
+          { transform: `${t(0.05)} scale(1.1) rotate(${spin * 30}deg)`, opacity: 1,   offset: 0.05 },
+          { transform: `${t(0.35)} scale(1.3) rotate(${spin * 130}deg)`, opacity: 1,  offset: 0.35 },
+          { transform: `${t(0.65)} scale(1.2) rotate(${spin * 230}deg)`, opacity: 1,  offset: 0.65 },
+          { transform: `${t(0.88)} scale(1.5) rotate(${spin * 310}deg)`, opacity: 1,  offset: 0.88 },
+          { transform: `${t(1)}    scale(0)   rotate(${spin * 360}deg)`, opacity: 0,   offset: 1    },
         ],
-        { duration: 1300, easing: 'ease-in-out', fill: 'forwards' }
+        { duration: 1100, easing: 'cubic-bezier(0.25, 0.1, 0.25, 1)', fill: 'forwards' }
       ).onfinish = () => el.remove()
     })
 
@@ -654,7 +653,7 @@ export function RoomView({ roomId }: { roomId: string }) {
 
   if (roomGone) {
     return (
-      <div className="h-dvh flex flex-col items-center justify-center gap-6 text-center px-6" style={{ backgroundColor: '#0f1929' }}>
+      <div className="h-dvh flex flex-col items-center justify-center gap-6 text-center px-6" style={{ backgroundColor: 'var(--bg)' }}>
         <div className="space-y-2">
           <p className="text-zinc-200 font-semibold">Room not found</p>
           <p className="text-zinc-600 text-sm max-w-xs">This room no longer exists, or the server was restarted.</p>
@@ -668,7 +667,7 @@ export function RoomView({ roomId }: { roomId: string }) {
 
   if (!room && !showJoinDialog) {
     return (
-      <div className="h-dvh flex flex-col items-center justify-center gap-3" style={{ backgroundColor: '#0f1929' }}>
+      <div className="h-dvh flex flex-col items-center justify-center gap-3" style={{ backgroundColor: 'var(--bg)' }}>
         <div className="w-5 h-5 rounded-full border-2 border-zinc-700 border-t-violet-500 animate-spin" />
         <span className="text-zinc-600 text-sm">Connecting...</span>
       </div>
@@ -721,26 +720,36 @@ export function RoomView({ roomId }: { roomId: string }) {
         <div className="flex items-center justify-center gap-4 sm:gap-8 w-full">
           {seats.left.length > 0 && <div className="flex flex-col gap-4 sm:gap-7">{seats.left.map(renderSeat)}</div>}
           <div
-            className="flex items-center justify-center rounded-[2rem] sm:rounded-[2.5rem] px-8 sm:px-14 py-7 sm:py-10 shrink-0"
-            style={{ minWidth: 'min(200px, 50vw)', minHeight: 110, backgroundColor: '#1a3050', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04), 0 10px 50px rgba(8,15,30,0.7)' }}
+            className="relative flex items-center justify-center shrink-0"
+            style={{
+              minWidth: 'min(260px, 55vw)', minHeight: 110,
+              borderRadius: '999px',
+              padding: '24px 64px',
+              background: 'var(--surface)',
+              border: '6px solid #3b1f0a',
+              boxShadow: '0 0 0 1px #1a0d05, 0 0 0 3px #5c3214, 0 12px 40px rgba(0,0,0,0.6)',
+            }}
           >
-            {room?.phase === 'voting' ? (
-              <div className="text-center space-y-1.5">
-                <p className="text-zinc-300 text-sm font-medium">Voting in progress</p>
-                {votedCount > 0 && <p className="text-zinc-600 text-xs tabular-nums">{votedCount} of {totalCount} voted</p>}
-              </div>
-            ) : (
-              <div className="text-center space-y-1">
-                {consensus ? (
-                  <><p className="text-emerald-500/70 text-[11px] font-semibold uppercase tracking-widest">Consensus</p>
-                    <p className="text-white font-black text-5xl tabular-nums">{consensus}</p></>
-                ) : (
-                  <><p className="text-zinc-500 text-[11px] font-semibold uppercase tracking-widest">Average</p>
-                    <p className="text-white font-black text-5xl tabular-nums">{calcAverage(revealedVotes)}</p>
-                    <p className="text-zinc-600 text-xs">No consensus</p></>
-                )}
-              </div>
-            )}
+            {/* Table content */}
+            <div className="relative z-10 flex items-center justify-center">
+              {room?.phase === 'voting' ? (
+                <div className="text-center space-y-1.5">
+                  <p className="text-zinc-300 text-sm font-medium">Voting in progress</p>
+                  {votedCount > 0 && <p className="text-zinc-400/60 text-xs tabular-nums">{votedCount} of {totalCount} voted</p>}
+                </div>
+              ) : (
+                <div className="text-center space-y-1">
+                  {consensus ? (
+                    <><p className="text-emerald-400/80 text-[11px] font-semibold uppercase tracking-widest">Consensus</p>
+                      <p className="text-white font-black text-5xl tabular-nums">{consensus}</p></>
+                  ) : (
+                    <><p className="text-zinc-400/60 text-[11px] font-semibold uppercase tracking-widest">Average</p>
+                      <p className="text-white font-black text-5xl tabular-nums">{calcAverage(revealedVotes)}</p>
+                      <p className="text-zinc-500 text-xs">No consensus</p></>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
           {seats.right.length > 0 && <div className="flex flex-col gap-4 sm:gap-7">{seats.right.map(renderSeat)}</div>}
         </div>
@@ -750,7 +759,7 @@ export function RoomView({ roomId }: { roomId: string }) {
       </div>
 
       {/* Zone 2 — controls, pinned at bottom */}
-      <div className="shrink-0 w-full" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+      <div className="shrink-0 w-full" style={{ borderTop: '1px solid var(--border)' }}>
 
         {/* Story row */}
         <div className="flex gap-2 px-3 pt-3 pb-2">
@@ -874,7 +883,11 @@ export function RoomView({ roomId }: { roomId: string }) {
       data-pp-root
       className="h-dvh flex flex-col text-white overflow-hidden"
       style={{
-        backgroundColor: '#0f1929',
+        backgroundColor: 'var(--bg)',
+        '--bg': theme.bg,
+        '--surface': theme.surface,
+        '--surface2': theme.surface2,
+        '--border': theme.border,
         '--accent': theme.accent,
         '--accent-hover': theme.hover,
         '--accent-muted': theme.muted,
@@ -919,7 +932,7 @@ export function RoomView({ roomId }: { roomId: string }) {
       {/* Join dialog */}
       <Dialog open={showJoinDialog} onOpenChange={() => {}}>
         <DialogContent className="border text-zinc-100 sm:max-w-sm"
-          style={{ backgroundColor: '#172035', borderColor: 'rgba(255,255,255,0.08)' }}>
+          style={{ backgroundColor: 'var(--surface2)', borderColor: 'var(--border)' }}>
           <DialogHeader>
             <DialogTitle className="text-zinc-100 text-base">
               {room ? `Join "${room.name}"` : 'Join Room'}
@@ -978,7 +991,7 @@ export function RoomView({ roomId }: { roomId: string }) {
 
       {/* Header */}
       <header className="sticky top-0 z-10 backdrop-blur-md shrink-0"
-        style={{ backgroundColor: 'rgba(12,21,37,0.85)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+        style={{ backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
         <div className="px-5 h-14 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
             <span className="font-black text-base shrink-0" style={{ color: 'var(--accent)' }}>◈</span>
@@ -1033,7 +1046,7 @@ export function RoomView({ roomId }: { roomId: string }) {
             </div>
           )}
           {/* Bottom nav */}
-          <nav className="shrink-0 flex" style={{ borderTop: '1px solid rgba(255,255,255,0.07)', backgroundColor: 'rgba(12,21,37,0.95)' }}>
+          <nav className="shrink-0 flex" style={{ borderTop: '1px solid var(--border)', backgroundColor: 'var(--surface)' }}>
             {([
               { id: 'table' as const, label: 'Table', Icon: Table2, badge: undefined },
               { id: 'queue' as const, label: 'Queue', Icon: LayoutList, badge: room?.topics.length },
@@ -1069,10 +1082,10 @@ export function RoomView({ roomId }: { roomId: string }) {
 
         <aside
           className="hidden lg:flex w-72 xl:w-80 flex-col shrink-0 overflow-hidden"
-          style={{ borderLeft: '1px solid rgba(255,255,255,0.06)' }}
+          style={{ borderLeft: '1px solid var(--border)', backgroundColor: 'var(--surface)' }}
         >
           {/* Tab strip */}
-          <div className="flex shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+          <div className="flex shrink-0" style={{ borderBottom: '1px solid var(--border)' }}>
             {(['queue', 'history'] as const).map((tab) => (
               <button
                 key={tab}
