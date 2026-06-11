@@ -1,13 +1,13 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Search, X, Plus, Loader2 } from 'lucide-react'
+import { Search, X, Plus, Loader2, CheckCircle2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { JiraSprintIssue } from '@/lib/use-jira'
 
 interface Props {
-  onAdd: (issues: JiraSprintIssue[]) => void
+  onAdd: (issues: JiraSprintIssue[]) => Promise<void>
   onClose: () => void
 }
 
@@ -20,11 +20,13 @@ export function JiraPicker({ onAdd, onClose }: Props) {
   const [query, setQuery] = useState('')
   const [issues, setIssues] = useState<JiraSprintIssue[]>([])
   const [loading, setLoading] = useState(false)
+  const [initialLoad, setInitialLoad] = useState(true)
+  const [adding, setAdding] = useState(false)
+  const [done, setDone] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  // Load sprint issues on open
   useEffect(() => {
     loadIssues('')
     inputRef.current?.focus()
@@ -41,12 +43,15 @@ export function JiraPicker({ onAdd, onClose }: Props) {
       setIssues(data.issues ?? [])
     } finally {
       setLoading(false)
+      setInitialLoad(false)
     }
   }
 
   function handleSearch(q: string) {
     setQuery(q)
+    setInitialLoad(false)
     if (searchTimer.current) clearTimeout(searchTimer.current)
+    setLoading(true)
     searchTimer.current = setTimeout(() => loadIssues(q), 350)
   }
 
@@ -63,10 +68,17 @@ export function JiraPicker({ onAdd, onClose }: Props) {
     else setSelected(new Set(issues.map((i) => i.key)))
   }
 
-  function handleAdd() {
+  async function handleAdd() {
+    if (adding || done) return
     const picked = issues.filter((i) => selected.has(i.key))
-    onAdd(picked)
-    onClose()
+    setAdding(true)
+    try {
+      await onAdd(picked)
+      setDone(true)
+      setTimeout(onClose, 700)
+    } finally {
+      setAdding(false)
+    }
   }
 
   return (
@@ -97,7 +109,7 @@ export function JiraPicker({ onAdd, onClose }: Props) {
         </div>
 
         {/* Select all row */}
-        {issues.length > 0 && (
+        {!initialLoad && issues.length > 0 && (
           <div
             className="flex items-center gap-3 px-4 py-2 shrink-0"
             style={{ borderBottom: '1px solid var(--border)' }}
@@ -116,10 +128,16 @@ export function JiraPicker({ onAdd, onClose }: Props) {
 
         {/* Issue list */}
         <div className="flex-1 overflow-y-auto">
-          {!loading && issues.length === 0 && (
+          {initialLoad && (
+            <div className="flex items-center justify-center gap-2 py-10 text-zinc-600">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span className="text-sm">Loading sprint issues…</span>
+            </div>
+          )}
+          {!initialLoad && !loading && issues.length === 0 && (
             <p className="text-sm text-zinc-600 px-4 py-6 text-center">No issues found</p>
           )}
-          {issues.map((issue) => (
+          {!initialLoad && issues.map((issue) => (
             <label
               key={issue.key}
               className={cn(
@@ -166,12 +184,26 @@ export function JiraPicker({ onAdd, onClose }: Props) {
           </span>
           <Button
             onClick={handleAdd}
-            disabled={selected.size === 0}
-            className="h-8 px-3 text-xs text-white font-semibold gap-1.5"
-            style={{ backgroundColor: 'var(--accent)' }}
+            disabled={selected.size === 0 || adding || done}
+            className="h-8 px-3 text-xs text-white font-semibold gap-1.5 min-w-[110px] justify-center"
+            style={{ backgroundColor: done ? '#16a34a' : 'var(--accent)' }}
           >
-            <Plus className="w-3.5 h-3.5" />
-            Add {selected.size > 0 ? selected.size : ''} to queue
+            {done ? (
+              <>
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                Added!
+              </>
+            ) : adding ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Adding…
+              </>
+            ) : (
+              <>
+                <Plus className="w-3.5 h-3.5" />
+                Add {selected.size > 0 ? selected.size : ''} to queue
+              </>
+            )}
           </Button>
         </div>
       </div>
