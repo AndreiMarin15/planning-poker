@@ -881,9 +881,11 @@ export function RoomView({ roomId }: { roomId: string }) {
   return (
     <div
       data-pp-root
+      data-light={theme.light ? 'true' : undefined}
       className="h-dvh flex flex-col text-white overflow-hidden"
       style={{
         backgroundColor: 'var(--bg)',
+        color: theme.light ? '#0f172a' : undefined,
         '--bg': theme.bg,
         '--surface': theme.surface,
         '--surface2': theme.surface2,
@@ -895,13 +897,31 @@ export function RoomView({ roomId }: { roomId: string }) {
       } as React.CSSProperties}
     >
 
-      {/* Dynamic accent color overrides for focus rings */}
+      {/* Dynamic accent color overrides for focus rings + light theme text overrides */}
       <style>{`
         [data-pp-root] *:focus-visible { outline-color: var(--accent) !important; }
         [data-pp-root] .focus-visible\\:ring-violet-500:focus-visible,
         [data-pp-root] .focus\\:ring-violet-500:focus,
         [data-pp-root] [class*="ring-violet"]:focus-visible,
         [data-pp-root] [class*="ring-violet"]:focus { --tw-ring-color: var(--accent-ring) !important; }
+        ${theme.light ? `
+        [data-pp-root][data-light] .text-white        { color: #1c1510 !important; }
+        [data-pp-root][data-light] .text-zinc-100     { color: #2a221a !important; }
+        [data-pp-root][data-light] .text-zinc-300     { color: #3d3128 !important; }
+        [data-pp-root][data-light] .text-zinc-400     { color: #5a4e44 !important; }
+        [data-pp-root][data-light] .text-zinc-500     { color: #7a6e64 !important; }
+        [data-pp-root][data-light] .text-zinc-600     { color: #9c9188 !important; }
+        [data-pp-root][data-light] .text-zinc-700     { color: #b8afa8 !important; }
+        [data-pp-root][data-light] .border-zinc-700\\/50 { border-color: rgba(0,0,0,0.1) !important; }
+        [data-pp-root][data-light] .border-zinc-800   { border-color: rgba(0,0,0,0.08) !important; }
+        [data-pp-root][data-light] .bg-zinc-900       { background-color: #d8d0c6 !important; }
+        [data-pp-root][data-light] .bg-zinc-800       { background-color: #cfc8be !important; }
+        [data-pp-root][data-light] .hover\\:bg-zinc-800:hover { background-color: #cfc8be !important; }
+        [data-pp-root][data-light] .hover\\:text-zinc-300:hover { color: #3d3128 !important; }
+        [data-pp-root][data-light] .hover\\:text-zinc-400:hover { color: #5a4e44 !important; }
+        [data-pp-root][data-light] .placeholder\\:text-zinc-700::placeholder { color: #a89e95 !important; }
+        [data-pp-root][data-light] input, [data-pp-root][data-light] textarea { color: #1c1510 !important; }
+        ` : ''}
       `}</style>
 
       {/* Hidden file input for sidebar bulk import */}
@@ -1010,9 +1030,10 @@ export function RoomView({ roomId }: { roomId: string }) {
                   key={t.id}
                   title={t.label}
                   onClick={() => setTheme(t.id as ThemeId)}
-                  className="w-3.5 h-3.5 rounded-full transition-transform hover:scale-125"
+                  className="w-3.5 h-3.5 rounded-full transition-transform hover:scale-125 shrink-0"
                   style={{
-                    backgroundColor: t.accent,
+                    backgroundColor: t.id === 'white' ? '#f8f9fa' : t.id === 'dark' ? '#333' : t.accent,
+                    border: t.id === 'white' ? '1.5px solid rgba(255,255,255,0.25)' : t.id === 'dark' ? '1.5px solid rgba(255,255,255,0.15)' : 'none',
                     outline: themeId === t.id ? `2px solid ${t.accent}` : '2px solid transparent',
                     outlineOffset: 2,
                   }}
