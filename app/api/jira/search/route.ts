@@ -19,9 +19,14 @@ export async function GET(req: Request) {
     { headers: auth.headers }
   )
 
-  if (!res.ok) return NextResponse.json({ issues: [] })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    console.error('[jira search] failed', res.status, jql, err)
+    return NextResponse.json({ issues: [] })
+  }
 
   const data = await res.json()
+  console.log('[jira search] jql:', jql, '| cloud_id:', auth.session.cloud_id, '| total:', data.total)
   const issues = (data.issues ?? []).map((issue: Record<string, unknown>) => {
     const fields = issue.fields as Record<string, unknown>
     return {

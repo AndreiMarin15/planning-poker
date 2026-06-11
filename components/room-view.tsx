@@ -29,6 +29,7 @@ import { AvatarImg, AvatarPicker, DEFAULT_AVATAR, type AvatarStyleId } from '@/c
 import { useRoomStore } from '@/lib/room-store'
 import { useTheme, THEMES, type ThemeId } from '@/lib/theme'
 import { useJira } from '@/lib/use-jira'
+import { JiraPicker } from '@/components/jira-picker'
 
 // ── Cookie session helpers ────────────────────────────────────────────────────
 
@@ -331,6 +332,7 @@ export function RoomView({ roomId }: { roomId: string }) {
   const [jiraFetching, setJiraFetching] = useState(false)
   const [jiraIssueData, setJiraIssueData] = useState<{ key: string; summary: string; description: string } | null>(null)
   const jiraFetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [showJiraPicker, setShowJiraPicker] = useState(false)
   const [jiraSearch, setJiraSearch] = useState('')
   const [jiraSearchResults, setJiraSearchResults] = useState<import('@/lib/use-jira').JiraSprintIssue[]>([])
   const [jiraSearchOpen, setJiraSearchOpen] = useState(false)
@@ -763,17 +765,17 @@ export function RoomView({ roomId }: { roomId: string }) {
     newTopicDescription, setNewTopicDescription,
     handleAddTopic, handleTopicLinkChange, handleStartTopic, handleRemoveTopic,
     onImportClick: () => sidebarImportRef.current?.click(),
-    onJiraSprintImport: jira.status?.connected ? async () => {
-      const issues = await jira.fetchSprint()
-      if (!issues.length) { toast('No issues found in active sprint', { duration: 2500 }); return }
-      for (const issue of issues) {
-        await fetch(`/api/rooms/${roomId}/topics`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title: issue.summary, jiraTicket: issue.key, jiraLink: issue.url, description: '' }),
-        })
-      }
-      toast(`Imported ${issues.length} issues from sprint`, { duration: 2500 })
-    } : undefined,
+    onJiraPickerOpen: jira.status?.connected ? () => setShowJiraPicker(true) : undefined,
+  }
+
+  async function handleJiraPickerAdd(issues: import('@/lib/use-jira').JiraSprintIssue[]) {
+    for (const issue of issues) {
+      await fetch(`/api/rooms/${roomId}/topics`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: issue.summary, jiraTicket: issue.key, jiraLink: issue.url, description: '' }),
+      })
+    }
+    toast(`Added ${issues.length} issue${issues.length > 1 ? 's' : ''} to queue`, { duration: 2500 })
   }
 
   // ── Table pane (shared between mobile and desktop main) ───────────────────────
@@ -1071,6 +1073,14 @@ export function RoomView({ roomId }: { roomId: string }) {
       />
 
 
+      {/* Jira issue picker */}
+      {showJiraPicker && (
+        <JiraPicker
+          onAdd={handleJiraPickerAdd}
+          onClose={() => setShowJiraPicker(false)}
+        />
+      )}
+
       {/* Full emoji picker overlay */}
       {fullPickerTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center"
@@ -1362,7 +1372,7 @@ function SidebarQueuePanel({
   newTopicLink,
   newTopicDescription, setNewTopicDescription,
   handleAddTopic, handleTopicLinkChange, handleStartTopic, handleRemoveTopic,
-  onImportClick, onJiraSprintImport,
+  onImportClick, onJiraPickerOpen,
 }: {
   room: Room | null
   isModerator: boolean
@@ -1377,7 +1387,7 @@ function SidebarQueuePanel({
   handleStartTopic: (id: string) => void
   handleRemoveTopic: (id: string) => void
   onImportClick: () => void
-  onJiraSprintImport?: () => void
+  onJiraPickerOpen?: () => void
 }) {
   return (
     <div>
@@ -1390,15 +1400,15 @@ function SidebarQueuePanel({
               : 'No topics queued'}
           </span>
           <div className="flex items-center gap-2.5">
-            {onJiraSprintImport && (
+            {onJiraPickerOpen && (
               <button
-                onClick={onJiraSprintImport}
+                onClick={onJiraPickerOpen}
                 className="flex items-center gap-1 text-[11px] transition-colors"
                 style={{ color: 'var(--accent)' }}
-                title="Import active sprint from Jira"
+                title="Browse and add Jira issues"
               >
                 <Link2 className="w-3 h-3" />
-                Sprint
+                Jira
               </button>
             )}
             <button
