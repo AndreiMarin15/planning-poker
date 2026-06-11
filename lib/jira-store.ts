@@ -1,14 +1,21 @@
-// Server-side in-memory Jira session store (keyed by session ID)
-// Sessions survive the process lifetime but not restarts — users re-auth on redeploy.
-
+import { Redis } from '@upstash/redis'
 import type { JiraSession } from './jira-session'
 
-const g = globalThis as typeof globalThis & { __jiraSessions?: Map<string, JiraSession> }
-if (!g.__jiraSessions) g.__jiraSessions = new Map<string, JiraSession>()
-const sessions = g.__jiraSessions
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_URL!,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+})
+
+const TTL = 60 * 60 * 8 // 8 hours
 
 export const jiraStore = {
-  set(id: string, session: JiraSession) { sessions.set(id, session) },
-  get(id: string): JiraSession | null { return sessions.get(id) ?? null },
-  delete(id: string) { sessions.delete(id) },
+  async set(id: string, session: JiraSession) {
+    await redis.set(`jira:${id}`, session, { ex: TTL })
+  },
+  async get(id: string): Promise<JiraSession | null> {
+    return redis.get<JiraSession>(`jira:${id}`)
+  },
+  async delete(id: string) {
+    await redis.del(`jira:${id}`)
+  },
 }

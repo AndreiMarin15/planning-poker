@@ -24,13 +24,13 @@ export async function getJiraSession(): Promise<JiraSession | null> {
 export async function getValidJiraSession(): Promise<{ session: JiraSession; headers: Record<string, string> } | null> {
   const sid = await getSessionId()
   if (!sid) return null
-  let session = jiraStore.get(sid)
+  let session = await jiraStore.get(sid)
   if (!session) return null
 
   if (session.expires_at - Date.now() < 5 * 60 * 1000) {
     const refreshed = await refreshJiraToken(session)
     if (!refreshed) return null
-    jiraStore.set(sid, refreshed)
+    await jiraStore.set(sid, refreshed)
     session = refreshed
   }
 

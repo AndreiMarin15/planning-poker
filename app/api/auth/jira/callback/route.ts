@@ -47,7 +47,7 @@ export async function GET(request: Request) {
   const cloudUrl = sites[0]?.url ?? null
 
   const sessionId = crypto.randomUUID()
-  jiraStore.set(sessionId, {
+  await jiraStore.set(sessionId, {
     access_token: tokens.access_token,
     refresh_token: tokens.refresh_token,
     expires_at: Date.now() + tokens.expires_in * 1000,
