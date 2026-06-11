@@ -1161,7 +1161,7 @@ export function RoomView({ roomId }: { roomId: string }) {
         style={{ backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
         <div className="px-5 h-14 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
-            <span className="font-black text-base shrink-0" style={{ color: 'var(--accent)' }}>◈</span>
+            <img src="/logo.svg" alt="Story Points" className="w-5 h-5 shrink-0" style={{ filter: 'brightness(0) invert(1)', opacity: 0.85 }} />
             <span className="font-semibold text-sm text-zinc-100 truncate">{room?.name}</span>
             <span className="hidden sm:block w-px h-3.5 shrink-0" style={{ backgroundColor: 'rgba(255,255,255,0.08)' }} />
             <button onClick={handleCopyCode} className="hidden sm:flex items-center gap-1.5 text-zinc-600 hover:text-zinc-300 transition-colors">

@@ -23,8 +23,9 @@ export const viewport: Viewport = {
 }
 
 export const metadata: Metadata = {
-  title: "Planning Poker",
-  description: "Collaborative story point estimation",
+  title: "Story Points",
+  description: "Collaborative story point estimation — poker.storypoints.space",
+  icons: { icon: "/logo.svg" },
 };
 
 export default function RootLayout({
