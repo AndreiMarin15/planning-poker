@@ -501,7 +501,7 @@ export function RoomView({ roomId }: { roomId: string }) {
     }
 
     poll()
-    pollRef.current = setInterval(poll, 1500)
+    pollRef.current = setInterval(poll, 800)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId, setRoom])
 
@@ -560,9 +560,10 @@ export function RoomView({ roomId }: { roomId: string }) {
 
   async function handleReveal() {
     const res = await fetch(`/api/rooms/${roomId}/reveal`, { method: 'POST' })
-    if (!jira.status?.connected || !jiraTicket) return
     const { room: revealed } = await res.json().catch(() => ({ room: null }))
     if (!revealed) return
+    setRoom(revealed)
+    if (!jira.status?.connected || !jiraTicket) return
     const votes = Object.values(revealed.votes as Record<string, string>).filter(Boolean)
     const nums = votes.map(Number).filter((n) => !isNaN(n))
     if (nums.length === 0) return
@@ -578,6 +579,7 @@ export function RoomView({ roomId }: { roomId: string }) {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
     })
     const { room: r } = await res.json()
+    setRoom(r)
     setStory(r.story ?? ''); setJiraTicket(r.jiraTicket ?? '')
     setJiraLink(r.jiraLink ?? ''); setStoryDescription(r.storyDescription ?? '')
   }
@@ -612,9 +614,9 @@ export function RoomView({ roomId }: { roomId: string }) {
       body: JSON.stringify({ topicId }),
     })
     const { room: r } = await res.json()
+    setRoom(r)
     setStory(r.story); setJiraTicket(r.jiraTicket ?? '')
     setJiraLink(r.jiraLink ?? ''); setStoryDescription(r.storyDescription ?? '')
-    // Switch to table view on mobile after starting a topic
     setMobileTab('table')
   }
 
