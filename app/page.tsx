@@ -13,7 +13,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog'
-import { Plus, X, Link2, ExternalLink, Upload } from 'lucide-react'
+import { Plus, X, Link2, ExternalLink, Upload, Footprints, PersonStanding } from 'lucide-react'
 import { extractJiraTicket, isJiraUrl } from '@/lib/jira'
 import { AvatarPicker, DEFAULT_AVATAR } from '@/components/avatar'
 import { cn } from '@/lib/utils'
@@ -154,6 +154,23 @@ export default function Home() {
       <style>{`
         [data-pp-root] [class*="ring-violet"]:focus-visible,
         [data-pp-root] [class*="ring-violet"]:focus { --tw-ring-color: var(--accent-ring) !important; }
+
+        @keyframes mascot-walk {
+          0%, 100% { transform: translateX(0); }
+          50% { transform: translateX(4px); }
+        }
+
+        @keyframes mascot-tired {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-2px); }
+        }
+
+        @keyframes mascot-pass {
+          0% { transform: translateX(-120%); opacity: 0; }
+          10% { transform: translateX(-100%); opacity: 1; }
+          90% { transform: translateX(100%); opacity: 1; }
+          100% { transform: translateX(120%); opacity: 0; }
+        }
       `}</style>
 
       <div className="mb-10 text-center space-y-4">
@@ -186,7 +203,7 @@ export default function Home() {
           Create Room
         </Button>
         <Button onClick={() => setShowJoin(true)} variant="outline" className="flex-1 border-zinc-800 text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100 h-10 text-sm">
-          Join to this Room bitchesss
+          Join Room
         </Button>
       </div>
 
@@ -375,6 +392,22 @@ export default function Home() {
       </Dialog>
 
       <p className="mt-14 text-zinc-800 text-xs">Rooms reset on server restart.</p>
+
+      <div className="fixed inset-x-0 bottom-4 z-20 pointer-events-none overflow-hidden px-6">
+        <div className="relative h-20 w-full">
+          <div
+            className="absolute top-0 inline-flex items-center gap-3 rounded-full border border-zinc-800 bg-zinc-950/95 px-4 py-3 text-zinc-100 shadow-2xl shadow-black/50 backdrop-blur-sm"
+            style={{ animation: 'mascot-pass 14s linear infinite' }}
+          >
+            <Footprints className="w-6 h-6 text-zinc-300" />
+            <PersonStanding className="w-6 h-6 text-zinc-100" />
+            <div className="space-y-0.5 text-left">
+              <p className="text-sm font-semibold text-zinc-100">Sleepy mascot passing by</p>
+              <p className="text-xs text-zinc-500">Wait lang natutulog pa</p>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
