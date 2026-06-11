@@ -27,29 +27,55 @@ export async function GET(req: Request) {
   const base = `https://api.atlassian.com/ex/jira/${auth.session.cloud_id}/rest/api/3/search/jql`
   const fields = 'summary,status,priority,customfield_10016,customfield_10028'
 
-  async function runJql(jql: string, max = 10): Promise<JiraIssueRaw[]> {
+  async function runJql(jql: string, max = 15): Promise<JiraIssueRaw[]> {
     const url = `${base}?jql=${encodeURIComponent(jql)}&fields=${fields}&maxResults=${max}`
-    const res = await fetch(url, { headers: auth!.headers })
-    if (!res.ok) return []
-    const data = await res.json()
-    return data.issues ?? []
+    try {
+      const res = await fetch(url, { headers: auth!.headers })
+      if (!res.ok) return []
+      const data = await res.json()
+      return data.issues ?? []
+    } catch {
+      return []
+    }
   }
 
-  // Run key lookup and summary search in parallel
-  const isKeyPattern = /^[A-Z][A-Z0-9_]+-\d+$/i.test(q)
-  const [keyIssues, summaryIssues] = await Promise.all([
-    isKeyPattern ? runJql(`key = "${upper}"`) : Promise.resolve([]),
-    runJql(`summary ~ "${q.replace(/"/g, '')}*" ORDER BY updated DESC`),
-  ])
+  // Pattern detection
+  const exactKey = /^[A-Z][A-Z0-9_]+-\d+$/i.test(q)              // SPWALLET-353
+  const projectPrefix = /^[A-Z][A-Z0-9_]+-\d*$/i.test(q) && !exactKey // SPWALLET- or SPWALLET-35
+  const projectOnly = /^[A-Z][A-Z0-9_]+$/i.test(q)                // SPWALLET
 
-  // Merge, dedup by key (key match first)
+  const safeQ = q.replace(/"/g, '')
+  const projectKey = upper.split('-')[0]
+
+  let queries: Promise<JiraIssueRaw[]>[]
+
+  if (exactKey) {
+    // Try key lookup + summary search in parallel
+    queries = [
+      runJql(`key = "${upper}"`),
+      runJql(`summary ~ "${safeQ}*" ORDER BY updated DESC`),
+    ]
+  } else if (projectPrefix || projectOnly) {
+    // Show issues from that project, newest first
+    queries = [
+      runJql(`project = "${projectKey}" ORDER BY issuekey DESC`, 20),
+      runJql(`summary ~ "${safeQ}*" ORDER BY updated DESC`),
+    ]
+  } else {
+    // Free-text summary search
+    queries = [
+      runJql(`summary ~ "${safeQ}*" ORDER BY updated DESC`),
+    ]
+  }
+
+  const results = await Promise.all(queries)
   const seen = new Set<string>()
-  const merged = [...keyIssues, ...summaryIssues].filter((i) => {
+  const merged = results.flat().filter((i) => {
     const k = i.key as string
     if (seen.has(k)) return false
     seen.add(k)
     return true
   })
 
-  return NextResponse.json({ issues: merged.slice(0, 15).map((i) => mapIssue(i, auth.session.cloud_url)) })
+  return NextResponse.json({ issues: merged.slice(0, 15).map((i) => mapIssue(i, auth!.session.cloud_url)) })
 }
