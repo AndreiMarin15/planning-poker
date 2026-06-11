@@ -389,7 +389,9 @@ export function RoomView({ roomId }: { roomId: string }) {
   const [newTopicDescription, setNewTopicDescription] = useState('')
 
   const storyRef = useRef<HTMLInputElement>(null)
-  const esRef = useRef<EventSource | null>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const emojiSinceRef = useRef(Date.now())
+  const seenEmojiIds = useRef(new Set<string>())
   const sidebarImportRef = useRef<HTMLInputElement>(null)
 
   const myVote = room && participantId ? room.votes[participantId] : undefined
@@ -397,123 +399,121 @@ export function RoomView({ roomId }: { roomId: string }) {
   const myParticipant = room && participantId ? room.participants.find((p) => p.id === participantId) : null
   const isFacilitator = myParticipant?.role === 'facilitator'
 
-  // ── SSE ──────────────────────────────────────────────────────────────────────
+  // ── Emoji animation (shared by polling handler) ───────────────────────────────
 
-  const connectSSE = useCallback((pid: string) => {
-    if (esRef.current) esRef.current.close()
-    const es = new EventSource(`/api/rooms/${roomId}/events`)
+  function animateEmoji(data: EmojiThrow, pid: string | null) {
+    if (data.toId === pid) toast(`Someone threw ${data.emoji} at you!`, { duration: 2500 })
 
-    es.onmessage = (e) => {
-      const data: Room = JSON.parse(e.data)
-      setRoom(data)
-      setRoomGone(false)
-      if (!storyFocusedRef.current) {
-        setStory(data.story)
-        setJiraTicket(data.jiraTicket ?? '')
-        setJiraLink(data.jiraLink ?? '')
-        setStoryDescription(data.storyDescription ?? '')
+    const visibleEl = (selector: string) => {
+      const els = document.querySelectorAll<HTMLElement>(selector)
+      for (const el of els) {
+        const r = el.getBoundingClientRect()
+        if (r.width > 0 && r.height > 0) return { el, r }
       }
+      return null
     }
 
-    es.onerror = () => {
-      if (es.readyState === EventSource.CLOSED) {
-        esRef.current = null
-        setTimeout(() => {
-          fetch(`/api/rooms/${roomId}`)
-            .then((r) => { if (r.ok) connectSSE(pid); else setRoomGone(true) })
-            .catch(() => setTimeout(() => connectSSE(pid), 3000))
-        }, 1000)
-      }
-    }
+    const toMatch = visibleEl(`[data-pid="${data.toId}"]`)
+    if (!toMatch) return
+    const toX = toMatch.r.left + toMatch.r.width / 2
+    const toY = toMatch.r.top + toMatch.r.height / 2
 
-    es.addEventListener('emoji', (e) => {
-      const data: EmojiThrow = JSON.parse((e as MessageEvent).data)
-      if (data.toId === pid) toast(`Someone threw ${data.emoji} at you!`, { duration: 2500 })
+    const fromLeft = Math.random() < 0.5
+    const fromX = fromLeft ? -40 : window.innerWidth + 40
+    const fromY = window.innerHeight / 2
+    const arcY = -Math.min(Math.abs(toX - fromX) * 0.15 + 40, 120)
 
-      // querySelectorAll because tablePaneContent renders in both mobile and desktop DOM;
-      // pick the visible instance (non-zero bounding rect)
-      const visibleEl = (selector: string) => {
-        const els = document.querySelectorAll<HTMLElement>(selector)
-        for (const el of els) {
-          const r = el.getBoundingClientRect()
-          if (r.width > 0 && r.height > 0) return { el, r }
+    const el = document.createElement('div')
+    el.textContent = data.emoji
+    el.style.cssText = `
+      position: fixed;
+      left: 0; top: 0;
+      font-size: 1.3rem;
+      line-height: 1;
+      pointer-events: none;
+      user-select: none;
+      z-index: 9999;
+      will-change: transform, opacity;
+    `
+    document.body.appendChild(el)
+
+    const spin = fromLeft ? 1 : -1
+    const t = (p: number) => `translate(${fromX + (toX - fromX) * p}px, ${fromY + (toY - fromY) * p + arcY * Math.sin(Math.PI * p)}px) translate(-50%,-50%)`
+    el.animate(
+      [
+        { transform: `${t(0)} scale(0.4) rotate(${spin * 0}deg)`,     opacity: 0, offset: 0    },
+        { transform: `${t(0.05)} scale(1.1) rotate(${spin * 30}deg)`, opacity: 1, offset: 0.05 },
+        { transform: `${t(0.35)} scale(1.3) rotate(${spin * 130}deg)`,opacity: 1, offset: 0.35 },
+        { transform: `${t(0.65)} scale(1.2) rotate(${spin * 230}deg)`,opacity: 1, offset: 0.65 },
+        { transform: `${t(0.88)} scale(1.5) rotate(${spin * 310}deg)`,opacity: 1, offset: 0.88 },
+        { transform: `${t(1)}    scale(0)   rotate(${spin * 360}deg)`, opacity: 0, offset: 1    },
+      ],
+      { duration: 1100, easing: 'cubic-bezier(0.25, 0.1, 0.25, 1)', fill: 'forwards' }
+    ).onfinish = () => el.remove()
+  }
+
+  // ── Polling ───────────────────────────────────────────────────────────────────
+
+  const startPolling = useCallback((pid: string | null) => {
+    if (pollRef.current) clearInterval(pollRef.current)
+    let consecutive404 = 0
+
+    async function poll() {
+      try {
+        const res = await fetch(`/api/rooms/${roomId}?since=${emojiSinceRef.current}`)
+        if (!res.ok) {
+          if (++consecutive404 >= 3) setRoomGone(true)
+          return
         }
-        return null
+        consecutive404 = 0
+        const { room: data, emojis } = await res.json()
+        setRoom(data)
+        setRoomGone(false)
+        if (!storyFocusedRef.current) {
+          setStory(data.story)
+          setJiraTicket(data.jiraTicket ?? '')
+          setJiraLink(data.jiraLink ?? '')
+          setStoryDescription(data.storyDescription ?? '')
+        }
+        if (Array.isArray(emojis)) {
+          for (const ev of emojis) {
+            if (seenEmojiIds.current.has(ev.id)) continue
+            seenEmojiIds.current.add(ev.id)
+            emojiSinceRef.current = Math.max(emojiSinceRef.current, ev.ts ?? 0)
+            animateEmoji(ev, pid)
+          }
+        }
+      } catch {
+        // network error — keep polling
       }
+    }
 
-      const toMatch = visibleEl(`[data-pid="${data.toId}"]`)
-      if (!toMatch) return
-      const toX = toMatch.r.left + toMatch.r.width / 2
-      const toY = toMatch.r.top + toMatch.r.height / 2
-
-      const fromLeft = Math.random() < 0.5
-      const fromX = fromLeft ? -40 : window.innerWidth + 40
-      const fromY = window.innerHeight / 2
-
-      const arcY = -Math.min(Math.abs(toX - fromX) * 0.15 + 40, 120)
-
-
-      const el = document.createElement('div')
-      el.textContent = data.emoji
-      el.style.cssText = `
-        position: fixed;
-        left: 0; top: 0;
-        font-size: 1.3rem;
-        line-height: 1;
-        pointer-events: none;
-        user-select: none;
-        z-index: 9999;
-        will-change: transform, opacity;
-      `
-      document.body.appendChild(el)
-
-      // spin direction matches throw direction for natural feel
-      const spin = fromLeft ? 1 : -1
-      const t = (p: number) => `translate(${fromX + (toX - fromX) * p}px, ${fromY + (toY - fromY) * p + arcY * Math.sin(Math.PI * p)}px) translate(-50%,-50%)`
-      el.animate(
-        [
-          { transform: `${t(0)} scale(0.4) rotate(${spin * 0}deg)`,   opacity: 0,   offset: 0    },
-          { transform: `${t(0.05)} scale(1.1) rotate(${spin * 30}deg)`, opacity: 1,   offset: 0.05 },
-          { transform: `${t(0.35)} scale(1.3) rotate(${spin * 130}deg)`, opacity: 1,  offset: 0.35 },
-          { transform: `${t(0.65)} scale(1.2) rotate(${spin * 230}deg)`, opacity: 1,  offset: 0.65 },
-          { transform: `${t(0.88)} scale(1.5) rotate(${spin * 310}deg)`, opacity: 1,  offset: 0.88 },
-          { transform: `${t(1)}    scale(0)   rotate(${spin * 360}deg)`, opacity: 0,   offset: 1    },
-        ],
-        { duration: 1100, easing: 'cubic-bezier(0.25, 0.1, 0.25, 1)', fill: 'forwards' }
-      ).onfinish = () => el.remove()
-    })
-
-    esRef.current = es
+    poll()
+    pollRef.current = setInterval(poll, 1500)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId, setRoom])
-
-  useEffect(() => {
-    if (room || roomGone || showJoinDialog) return
-    const t = setTimeout(() => setRoomGone(true), 12000)
-    return () => clearTimeout(t)
-  }, [room, roomGone, showJoinDialog])
 
   useEffect(() => {
     const pid = getSession(roomId)
     async function init() {
-      const check = await fetch(`/api/rooms/${roomId}`).catch(() => null)
-      if (!check?.ok) { setRoomGone(true); return }
+      const res = await fetch(`/api/rooms/${roomId}`).catch(() => null)
+      if (!res?.ok) { setRoomGone(true); return }
+      const { room: data } = await res.json()
+      setRoom(data)
+      setStory(data.story)
+      setJiraTicket(data.jiraTicket ?? '')
+      setJiraLink(data.jiraLink ?? '')
+      setStoryDescription(data.storyDescription ?? '')
       if (pid) {
         setParticipantId(pid)
-        connectSSE(pid)
+        startPolling(pid)
       } else {
-        const es = new EventSource(`/api/rooms/${roomId}/events`)
-        es.onmessage = (e) => {
-          const r: Room = JSON.parse(e.data)
-          setRoom(r); setStory(r.story); setJiraTicket(r.jiraTicket ?? '')
-          setJiraLink(r.jiraLink ?? ''); setStoryDescription(r.storyDescription ?? '')
-        }
-        es.onerror = () => { if (es.readyState === EventSource.CLOSED) setRoomGone(true) }
-        esRef.current = es
+        startPolling(null)
         setShowJoinDialog(true)
       }
     }
     init()
-    return () => esRef.current?.close()
+    return () => { if (pollRef.current) clearInterval(pollRef.current) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId])
 
@@ -533,7 +533,7 @@ export function RoomView({ roomId }: { roomId: string }) {
       setParticipantId(pid); setRoom(r)
       setStory(r.story); setJiraTicket(r.jiraTicket ?? '')
       setJiraLink(r.jiraLink ?? ''); setStoryDescription(r.storyDescription ?? '')
-      setShowJoinDialog(false); connectSSE(pid)
+      setShowJoinDialog(false); startPolling(pid)
     } finally { setJoining(false) }
   }
 

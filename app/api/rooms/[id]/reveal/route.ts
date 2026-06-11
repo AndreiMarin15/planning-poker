@@ -3,7 +3,7 @@ import { store } from '@/lib/store'
 
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const room = store.revealVotes(id)
+  const room = await store.revealVotes(id)
   if (!room) return NextResponse.json({ error: 'Room not found' }, { status: 404 })
   return NextResponse.json({ room })
 }

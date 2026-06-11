@@ -7,7 +7,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (!participantId || value === undefined) {
     return NextResponse.json({ error: 'participantId and value are required' }, { status: 400 })
   }
-  const room = store.castVote(id, participantId, value)
+  const room = await store.castVote(id, participantId, value)
   if (!room) return NextResponse.json({ error: 'Room not found or voting closed' }, { status: 404 })
   return NextResponse.json({ room })
 }
