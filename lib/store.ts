@@ -1,11 +1,19 @@
 import { EventEmitter } from 'events'
 import type { Room, Participant, Topic, HistoryEntry, EmojiThrow, CardTemplate } from './types'
 
-const rooms = new Map<string, Room>()
-const emitter = new EventEmitter()
-emitter.setMaxListeners(500)
-const emojiEmitter = new EventEmitter()
-emojiEmitter.setMaxListeners(500)
+// Persist across Next.js HMR reloads in dev (module is re-evaluated on hot reload)
+const g = globalThis as typeof globalThis & {
+  __rooms?: Map<string, Room>
+  __emitter?: EventEmitter
+  __emojiEmitter?: EventEmitter
+}
+if (!g.__rooms) g.__rooms = new Map<string, Room>()
+if (!g.__emitter) { g.__emitter = new EventEmitter(); g.__emitter.setMaxListeners(500) }
+if (!g.__emojiEmitter) { g.__emojiEmitter = new EventEmitter(); g.__emojiEmitter.setMaxListeners(500) }
+
+const rooms = g.__rooms
+const emitter = g.__emitter
+const emojiEmitter = g.__emojiEmitter
 
 function randomId(length = 6): string {
   const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'

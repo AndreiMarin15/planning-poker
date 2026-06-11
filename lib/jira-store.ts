@@ -3,7 +3,9 @@
 
 import type { JiraSession } from './jira-session'
 
-const sessions = new Map<string, JiraSession>()
+const g = globalThis as typeof globalThis & { __jiraSessions?: Map<string, JiraSession> }
+if (!g.__jiraSessions) g.__jiraSessions = new Map<string, JiraSession>()
+const sessions = g.__jiraSessions
 
 export const jiraStore = {
   set(id: string, session: JiraSession) { sessions.set(id, session) },
