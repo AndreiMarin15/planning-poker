@@ -55,7 +55,7 @@ export function getTheme(id: ThemeId): Theme {
 }
 
 export function useTheme() {
-  const [themeId, setThemeId] = useState<ThemeId>('teal')
+  const [themeId, setThemeId] = useState<ThemeId>('dark')
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
