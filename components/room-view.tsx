@@ -896,7 +896,7 @@ export function RoomView({ roomId }: { roomId: string }) {
       <div className="shrink-0 w-full" style={{ borderTop: '1px solid var(--border)' }}>
 
         {/* Story row */}
-        <div className="flex flex-col gap-2 px-3 pt-3 pb-2">
+        <div className="flex flex-col gap-3 px-4 pt-5 pb-3 sm:px-3 sm:pt-3 sm:pb-2 sm:gap-2.5">
           {/* Top sub-row: Jira ticket + story title (full width on mobile) */}
           <div className="flex gap-2">
             <div className="relative">
@@ -917,6 +917,18 @@ export function RoomView({ roomId }: { roomId: string }) {
                 <span className="absolute right-2 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-emerald-400" />
               )}
             </div>
+            <textarea
+              ref={storyRef as unknown as React.RefObject<HTMLTextAreaElement>}
+              placeholder="What are you estimating?"
+              value={story}
+              onChange={(e) => setStory(e.target.value)}
+              onFocus={() => { storyFocusedRef.current = true }}
+              onBlur={handleStoryBlur}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); (e.target as HTMLTextAreaElement).blur() } }}
+              rows={2}
+              className="flex-1 resize-none text-sm text-zinc-200 placeholder:text-zinc-700 rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-violet-500/50 leading-snug sm:hidden"
+              style={{ backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}
+            />
             <Input
               ref={storyRef}
               placeholder="What are you estimating?"
@@ -925,7 +937,7 @@ export function RoomView({ roomId }: { roomId: string }) {
               onFocus={() => { storyFocusedRef.current = true }}
               onBlur={handleStoryBlur}
               onKeyDown={(e) => e.key === 'Enter' && storyRef.current?.blur()}
-              className="flex-1 h-9 text-sm text-zinc-200 placeholder:text-zinc-700 focus-visible:ring-violet-500/50"
+              className="hidden sm:flex flex-1 h-9 text-sm text-zinc-200 placeholder:text-zinc-700 focus-visible:ring-violet-500/50"
               style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.08)' }}
             />
           </div>
@@ -945,49 +957,79 @@ export function RoomView({ roomId }: { roomId: string }) {
                 <Search className="w-3.5 h-3.5" />
               </button>
               {jiraSearchOpen && (
-                <div
-                  className="absolute top-12 left-0 z-50 rounded-lg shadow-xl overflow-hidden"
-                  style={{ width: 320, backgroundColor: 'var(--surface2)', border: '1px solid var(--border)' }}
-                >
-                  <div className="p-2 border-b" style={{ borderColor: 'var(--border)' }}>
-                    <input
-                      autoFocus
-                      placeholder="Search issues…"
-                      value={jiraSearch}
-                      onChange={(e) => setJiraSearch(e.target.value)}
-                      className="w-full bg-transparent text-sm text-zinc-200 placeholder:text-zinc-600 outline-none px-1"
-                    />
+                <>
+                  {/* Mobile: centered overlay */}
+                  <div
+                    className="sm:hidden fixed inset-0 z-50 flex items-center justify-center px-4"
+                    style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}
+                    onClick={() => { setJiraSearchOpen(false); setJiraSearch('') }}
+                  >
+                    <div
+                      className="w-full max-w-sm rounded-xl shadow-2xl overflow-hidden"
+                      style={{ backgroundColor: 'var(--surface2)', border: '1px solid var(--border)' }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex items-center gap-2 px-3 py-3 border-b" style={{ borderColor: 'var(--border)' }}>
+                        <Search className="w-4 h-4 text-zinc-500 shrink-0" />
+                        <input
+                          autoFocus
+                          placeholder="Search issues…"
+                          value={jiraSearch}
+                          onChange={(e) => setJiraSearch(e.target.value)}
+                          className="flex-1 bg-transparent text-sm text-zinc-200 placeholder:text-zinc-500 outline-none"
+                        />
+                        <button onClick={() => { setJiraSearchOpen(false); setJiraSearch('') }} className="text-zinc-600 hover:text-zinc-300 transition-colors">
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <div className="max-h-72 overflow-y-auto">
+                        {jiraSearchLoading && <p className="text-xs text-zinc-600 px-4 py-3">Searching…</p>}
+                        {!jiraSearchLoading && jiraSearch && jiraSearchResults.length === 0 && <p className="text-xs text-zinc-600 px-4 py-3">No results</p>}
+                        {!jiraSearchLoading && !jiraSearch && <p className="text-xs text-zinc-600 px-4 py-3">Type to search your Jira issues</p>}
+                        {jiraSearchResults.map((issue) => (
+                          <button key={issue.key} className="w-full text-left px-4 py-3 hover:bg-white/5 transition-colors border-t border-white/[0.03]"
+                            onMouseDown={() => { setJiraTicket(issue.key); if (!story.trim()) setStory(issue.summary); setJiraSearchOpen(false); setJiraSearch('') }}>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-mono shrink-0" style={{ color: 'var(--accent)' }}>{issue.key}</span>
+                              {issue.status && <span className="text-[10px] text-zinc-600 shrink-0">{issue.status}</span>}
+                            </div>
+                            <p className="text-xs text-zinc-300 truncate mt-0.5">{issue.summary}</p>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
-                  <div className="max-h-64 overflow-y-auto">
-                    {jiraSearchLoading && (
-                      <p className="text-xs text-zinc-600 px-3 py-2">Searching…</p>
-                    )}
-                    {!jiraSearchLoading && jiraSearch && jiraSearchResults.length === 0 && (
-                      <p className="text-xs text-zinc-600 px-3 py-2">No results</p>
-                    )}
-                    {!jiraSearchLoading && !jiraSearch && (
-                      <p className="text-xs text-zinc-600 px-3 py-2">Type to search your Jira issues</p>
-                    )}
-                    {jiraSearchResults.map((issue) => (
-                      <button
-                        key={issue.key}
-                        className="w-full text-left px-3 py-2 hover:bg-white/5 transition-colors"
-                        onMouseDown={() => {
-                          setJiraTicket(issue.key)
-                          if (!story.trim()) setStory(issue.summary)
-                          setJiraSearchOpen(false)
-                          setJiraSearch('')
-                        }}
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-mono shrink-0" style={{ color: 'var(--accent)' }}>{issue.key}</span>
-                          {issue.status && <span className="text-[10px] text-zinc-600 shrink-0">{issue.status}</span>}
-                        </div>
-                        <p className="text-xs text-zinc-300 truncate mt-0.5">{issue.summary}</p>
-                      </button>
-                    ))}
+                  {/* Desktop: absolute dropdown */}
+                  <div
+                    className="hidden sm:block absolute top-12 left-0 z-50 rounded-lg shadow-xl overflow-hidden"
+                    style={{ width: 320, backgroundColor: 'var(--surface2)', border: '1px solid var(--border)' }}
+                  >
+                    <div className="p-2 border-b" style={{ borderColor: 'var(--border)' }}>
+                      <input
+                        autoFocus
+                        placeholder="Search issues…"
+                        value={jiraSearch}
+                        onChange={(e) => setJiraSearch(e.target.value)}
+                        className="w-full bg-transparent text-sm text-zinc-200 placeholder:text-zinc-600 outline-none px-1"
+                      />
+                    </div>
+                    <div className="max-h-64 overflow-y-auto">
+                      {jiraSearchLoading && <p className="text-xs text-zinc-600 px-3 py-2">Searching…</p>}
+                      {!jiraSearchLoading && jiraSearch && jiraSearchResults.length === 0 && <p className="text-xs text-zinc-600 px-3 py-2">No results</p>}
+                      {!jiraSearchLoading && !jiraSearch && <p className="text-xs text-zinc-600 px-3 py-2">Type to search your Jira issues</p>}
+                      {jiraSearchResults.map((issue) => (
+                        <button key={issue.key} className="w-full text-left px-3 py-2 hover:bg-white/5 transition-colors"
+                          onMouseDown={() => { setJiraTicket(issue.key); if (!story.trim()) setStory(issue.summary); setJiraSearchOpen(false); setJiraSearch('') }}>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-mono shrink-0" style={{ color: 'var(--accent)' }}>{issue.key}</span>
+                            {issue.status && <span className="text-[10px] text-zinc-600 shrink-0">{issue.status}</span>}
+                          </div>
+                          <p className="text-xs text-zinc-300 truncate mt-0.5">{issue.summary}</p>
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                </>
               )}
             </div>
           )}
@@ -1060,7 +1102,7 @@ export function RoomView({ roomId }: { roomId: string }) {
 
         {/* Voting cards */}
         {room?.phase === 'voting' && participantId && !isFacilitator && (
-          <div className="flex justify-center gap-1 sm:gap-2.5 px-3 pb-3">
+          <div className="flex justify-center gap-0.5 sm:gap-2.5 px-2 pb-4 sm:px-3 sm:pb-3">
             {CARD_VALUES.map((v) => (
               <PokerCard key={v} value={v} selected={myVote === v} onClick={() => handleVote(v)} />
             ))}
@@ -1303,7 +1345,7 @@ export function RoomView({ roomId }: { roomId: string }) {
             </div>
           )}
           {/* Bottom nav */}
-          <nav className="shrink-0 flex" style={{ borderTop: '1px solid var(--border)', backgroundColor: 'var(--surface)' }}>
+          <nav className="shrink-0 flex pb-safe" style={{ borderTop: '1px solid var(--border)', backgroundColor: 'var(--surface)' }}>
             {([
               { id: 'table' as const, label: 'Table', Icon: Table2, badge: undefined },
               { id: 'queue' as const, label: 'Queue', Icon: LayoutList, badge: room?.topics.length },
@@ -1313,7 +1355,7 @@ export function RoomView({ roomId }: { roomId: string }) {
                 key={id}
                 onClick={() => setMobileTab(id)}
                 className={cn(
-                  'flex-1 flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-semibold transition-colors',
+                  'flex-1 flex flex-col items-center gap-1 py-3 text-[11px] font-semibold transition-colors',
                   mobileTab === id ? '' : 'text-zinc-600 hover:text-zinc-400',
                 )}
                 style={mobileTab === id ? { color: 'var(--accent)' } : {}}
