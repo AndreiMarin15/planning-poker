@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
+import Ably from 'ably'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useRouter } from 'next/navigation'
 import type { Room, Participant, HistoryEntry, EmojiThrow, Topic } from '@/lib/types'
@@ -464,7 +465,21 @@ export function RoomView({ roomId }: { roomId: string }) {
     ).onfinish = () => el.remove()
   }
 
-  // ── Polling ───────────────────────────────────────────────────────────────────
+  // ── Room update handler (shared by Ably and polling) ─────────────────────────
+
+  const applyRoomUpdate = useCallback((data: Room, pid: string | null) => {
+    setRoom(data)
+    setRoomGone(false)
+    if (!storyFocusedRef.current) {
+      setStory(data.story)
+      setJiraTicket(data.jiraTicket ?? '')
+      setJiraLink(data.jiraLink ?? '')
+      setStoryDescription(data.storyDescription ?? '')
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setRoom])
+
+  // ── Polling (fallback when Ably is unavailable) ───────────────────────────────
 
   const startPolling = useCallback((pid: string | null) => {
     if (pollRef.current) clearInterval(pollRef.current)
@@ -479,14 +494,7 @@ export function RoomView({ roomId }: { roomId: string }) {
         }
         consecutive404 = 0
         const { room: data, emojis } = await res.json()
-        setRoom(data)
-        setRoomGone(false)
-        if (!storyFocusedRef.current) {
-          setStory(data.story)
-          setJiraTicket(data.jiraTicket ?? '')
-          setJiraLink(data.jiraLink ?? '')
-          setStoryDescription(data.storyDescription ?? '')
-        }
+        applyRoomUpdate(data, pid)
         if (Array.isArray(emojis)) {
           for (const ev of emojis) {
             if (seenEmojiIds.current.has(ev.id)) continue
@@ -501,9 +509,43 @@ export function RoomView({ roomId }: { roomId: string }) {
     }
 
     poll()
-    pollRef.current = setInterval(poll, 800)
+    pollRef.current = setInterval(poll, 5000) // slow heartbeat — Ably handles real-time
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId, setRoom])
+  }, [roomId, applyRoomUpdate])
+
+  // ── Ably real-time subscription ───────────────────────────────────────────────
+
+  const ablyRef = useRef<Ably.Realtime | null>(null)
+
+  const startAbly = useCallback((pid: string | null) => {
+    if (ablyRef.current) return
+
+    const client = new Ably.Realtime({
+      authUrl: `/api/rooms/${roomId}/ably-token`,
+      authMethod: 'GET',
+    })
+    ablyRef.current = client
+
+    const channel = client.channels.get(`room:${roomId.toUpperCase()}`)
+
+    channel.subscribe('update', (msg) => {
+      applyRoomUpdate(msg.data as Room, pid)
+    })
+
+    channel.subscribe('emoji', (msg) => {
+      const ev = msg.data as EmojiThrow & { ts?: number }
+      if (seenEmojiIds.current.has(ev.id)) return
+      seenEmojiIds.current.add(ev.id)
+      animateEmoji(ev, pid)
+    })
+
+    client.connection.on('failed', () => {
+      // Ably failed — fall back to faster polling
+      pollRef.current && clearInterval(pollRef.current)
+      startPolling(pid)
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomId, applyRoomUpdate, startPolling])
 
   useEffect(() => {
     const pid = getSession(roomId)
@@ -511,21 +553,18 @@ export function RoomView({ roomId }: { roomId: string }) {
       const res = await fetch(`/api/rooms/${roomId}`).catch(() => null)
       if (!res?.ok) { setRoomGone(true); return }
       const { room: data } = await res.json()
-      setRoom(data)
-      setStory(data.story)
-      setJiraTicket(data.jiraTicket ?? '')
-      setJiraLink(data.jiraLink ?? '')
-      setStoryDescription(data.storyDescription ?? '')
-      if (pid) {
-        setParticipantId(pid)
-        startPolling(pid)
-      } else {
-        startPolling(null)
-        setShowJoinDialog(true)
-      }
+      applyRoomUpdate(data, pid)
+      if (pid) setParticipantId(pid)
+      else setShowJoinDialog(true)
+      startAbly(pid)
+      startPolling(pid) // slow heartbeat for reconnect detection
     }
     init()
-    return () => { if (pollRef.current) clearInterval(pollRef.current) }
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current)
+      ablyRef.current?.close()
+      ablyRef.current = null
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId])
 
