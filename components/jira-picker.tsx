@@ -51,8 +51,10 @@ export function JiraPicker({ onAdd, onClose }: Props) {
     setQuery(q)
     setInitialLoad(false)
     if (searchTimer.current) clearTimeout(searchTimer.current)
-    setLoading(true)
-    searchTimer.current = setTimeout(() => loadIssues(q), 350)
+    searchTimer.current = setTimeout(() => {
+      setLoading(true)
+      loadIssues(q)
+    }, 500)
   }
 
   function toggle(key: string) {
