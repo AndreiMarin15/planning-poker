@@ -353,6 +353,18 @@ export function RoomView({ roomId }: { roomId: string }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jiraSearch, jira.status?.connected])
 
+  // Sync myVote with server state: set on reconnect, clear when round resets
+  useEffect(() => {
+    if (!participantId || !room) return
+    const serverVote = room.votes[participantId]
+    if (room.phase === 'voting') {
+      if (serverVote) setMyVote(serverVote)
+      else setMyVote(undefined)
+    }
+  // Only re-run when the round changes (phase or vote cleared/set for us)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room?.phase, participantId, room?.votes[participantId ?? '']])
+
   // Auto-fetch Jira issue when ticket key changes (debounced 600ms)
   useEffect(() => {
     if (jiraFetchTimer.current) clearTimeout(jiraFetchTimer.current)
@@ -394,7 +406,7 @@ export function RoomView({ roomId }: { roomId: string }) {
   const seenEmojiIds = useRef(new Set<string>())
   const sidebarImportRef = useRef<HTMLInputElement>(null)
 
-  const myVote = room && participantId ? room.votes[participantId] : undefined
+  const [myVote, setMyVote] = useState<string | undefined>(undefined)
   const isModerator = room && participantId ? room.moderatorId === participantId : false
   const myParticipant = room && participantId ? room.participants.find((p) => p.id === participantId) : null
   const isFacilitator = myParticipant?.role === 'facilitator'
@@ -539,8 +551,8 @@ export function RoomView({ roomId }: { roomId: string }) {
 
   async function handleVote(value: string) {
     if (!participantId || room?.phase !== 'voting' || isFacilitator) return
-    setRoom({ ...room!, votes: { ...room!.votes, [participantId]: value } })
-    await fetch(`/api/rooms/${roomId}/vote`, {
+    setMyVote(value)
+    fetch(`/api/rooms/${roomId}/vote`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ participantId, value }),
     })
@@ -566,7 +578,7 @@ export function RoomView({ roomId }: { roomId: string }) {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
     })
     const { room: r } = await res.json()
-    setStory(r.story); setJiraTicket(r.jiraTicket ?? '')
+    setStory(r.story ?? ''); setJiraTicket(r.jiraTicket ?? '')
     setJiraLink(r.jiraLink ?? ''); setStoryDescription(r.storyDescription ?? '')
   }
 
@@ -1307,16 +1319,23 @@ export function RoomView({ roomId }: { roomId: string }) {
 
 // ── TopicRow ──────────────────────────────────────────────────────────────────
 
-function TopicRow({ topic: t, isModerator, onStart, onRemove }: {
+function TopicRow({ topic: t, isModerator, isCurrent, onStart, onRemove }: {
   topic: Topic
   isModerator: boolean
+  isCurrent: boolean
   onStart: (id: string) => void
   onRemove: (id: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   return (
-    <div style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }} className="last:border-0">
-      {/* Header row — mirrors HistoryEntryRow */}
+    <div
+      style={{
+        borderBottom: '1px solid rgba(255,255,255,0.04)',
+        ...(isCurrent ? { borderLeft: '2px solid var(--accent)', backgroundColor: 'rgba(255,255,255,0.02)' } : {}),
+      }}
+      className="last:border-0"
+    >
+      {/* Header row */}
       <button
         onClick={() => t.description && setExpanded((v) => !v)}
         className={cn(
@@ -1324,10 +1343,13 @@ function TopicRow({ topic: t, isModerator, onStart, onRemove }: {
           !t.description && 'cursor-default',
         )}
       >
+        {isCurrent && (
+          <span className="mt-1 shrink-0 w-1.5 h-1.5 rounded-full" style={{ backgroundColor: 'var(--accent)' }} />
+        )}
         {t.jiraTicket && <span className="mt-0.5 shrink-0"><JiraBadge ticket={t.jiraTicket} link={t.jiraLink} /></span>}
-        <span className="text-sm text-zinc-400 flex-1 min-w-0 break-words leading-snug">{t.title}</span>
+        <span className={cn('text-sm flex-1 min-w-0 break-words leading-snug', isCurrent ? 'text-zinc-200' : 'text-zinc-400')}>{t.title}</span>
         <div className="flex items-center gap-2.5 shrink-0 self-start pt-0.5">
-          {isModerator && (
+          {isModerator && !isCurrent && (
             <>
               <span
                 role="button"
@@ -1347,12 +1369,16 @@ function TopicRow({ topic: t, isModerator, onStart, onRemove }: {
               </span>
             </>
           )}
+          {isModerator && isCurrent && (
+            <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--accent)' }}>
+              Voting
+            </span>
+          )}
           {t.description && (
             <ChevronDown className={cn('w-3 h-3 text-zinc-700 transition-transform', expanded && 'rotate-180')} />
           )}
         </div>
       </button>
-      {/* Expanded description — same layout as HistoryEntryRow */}
       {expanded && t.description && (
         <div className="px-4 pb-3">
           <JiraText text={t.description} />
@@ -1488,6 +1514,7 @@ function SidebarQueuePanel({
       {room?.topics.map((t) => (
         <TopicRow
           key={t.id} topic={t} isModerator={isModerator}
+          isCurrent={t.id === room.currentTopicId}
           onStart={handleStartTopic} onRemove={handleRemoveTopic}
         />
       ))}

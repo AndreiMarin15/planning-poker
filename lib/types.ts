@@ -38,6 +38,7 @@ export interface Room {
   jiraTicket?: string
   jiraLink?: string
   topics: Topic[]
+  currentTopicId?: string
   history: HistoryEntry[]
   participants: Participant[]
   votes: Record<string, string>

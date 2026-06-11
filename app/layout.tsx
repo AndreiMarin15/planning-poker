@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
+import { Analytics } from "@vercel/analytics/next"
 import "./globals.css";
 
 const plusJakartaSans = Plus_Jakarta_Sans({
@@ -38,6 +39,7 @@ export default function RootLayout({
       lang="en"
       className={`${plusJakartaSans.variable} ${jetbrainsMono.variable} h-full antialiased dark`}
     >
+      <Analytics />
       <body className="min-h-full flex flex-col bg-zinc-950">
         {children}
         <Toaster theme="dark" />

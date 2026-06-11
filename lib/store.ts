@@ -68,13 +68,13 @@ export const store = {
     let jiraTicket: string | undefined
     let jiraLink: string | undefined
     let storyDescription: string | undefined
-    let remainingTopics = topics
+    let currentTopicId: string | undefined
     if (topics.length > 0) {
       story = topics[0].title
       jiraTicket = topics[0].jiraTicket
       jiraLink = topics[0].jiraLink
       storyDescription = topics[0].description
-      remainingTopics = topics.slice(1)
+      currentTopicId = topics[0].id
     }
 
     const room: Room = {
@@ -84,7 +84,8 @@ export const store = {
       storyDescription,
       jiraTicket,
       jiraLink,
-      topics: remainingTopics,
+      topics,
+      currentTopicId,
       history: [],
       participants: [participant],
       votes: {},
@@ -133,27 +134,47 @@ export const store = {
     const room = await store.getRoom(roomId)
     if (!room) return null
     const entry = buildHistoryEntry(room)
-    const updated: Room = { ...room, phase: 'revealed', history: [...room.history, entry] }
+    // Remove the current topic from the queue only now (it was actually voted on)
+    const topics = room.currentTopicId
+      ? room.topics.filter((t) => t.id !== room.currentTopicId)
+      : room.topics
+    const updated: Room = {
+      ...room,
+      phase: 'revealed',
+      history: [...room.history, entry],
+      topics,
+      currentTopicId: undefined,
+    }
     await saveRoom(updated)
     return updated
   },
 
-  async resetRound(roomId: string, story?: string, jiraTicket?: string, jiraLink?: string): Promise<Room | null> {
+  async resetRound(roomId: string): Promise<Room | null> {
     const room = await store.getRoom(roomId)
     if (!room) return null
 
-    let nextStory = story ?? ''
-    let nextJira = jiraTicket
-    let nextLink = jiraLink
-    let nextDesc: string | undefined
-    let nextTopics = room.topics
+    // After reveal, currentTopicId is already cleared and that topic removed from queue.
+    // If there are remaining topics, advance to the first one (keep it in queue).
+    // If no topics, start a free-form new round (clear story).
+    let nextStory = room.story
+    let nextJira = room.jiraTicket
+    let nextLink = room.jiraLink
+    let nextDesc = room.storyDescription
+    let nextCurrentTopicId = room.currentTopicId
 
-    if (!story && room.topics.length > 0) {
-      nextStory = room.topics[0].title
-      nextJira = room.topics[0].jiraTicket
-      nextLink = room.topics[0].jiraLink
-      nextDesc = room.topics[0].description
-      nextTopics = room.topics.slice(1)
+    if (room.topics.length > 0) {
+      const next = room.topics[0]
+      nextStory = next.title
+      nextJira = next.jiraTicket
+      nextLink = next.jiraLink
+      nextDesc = next.description
+      nextCurrentTopicId = next.id
+    } else {
+      nextStory = ''
+      nextJira = undefined
+      nextLink = undefined
+      nextDesc = undefined
+      nextCurrentTopicId = undefined
     }
 
     const updated: Room = {
@@ -164,7 +185,7 @@ export const store = {
       storyDescription: nextDesc,
       jiraTicket: nextJira,
       jiraLink: nextLink,
-      topics: nextTopics,
+      currentTopicId: nextCurrentTopicId,
     }
     await saveRoom(updated)
     return updated
@@ -194,7 +215,18 @@ export const store = {
       jiraTicket: jiraTicket || undefined,
       jiraLink: jiraLink || undefined,
     }
-    const updated: Room = { ...room, topics: [...room.topics, topic] }
+    const isFirst = room.topics.length === 0 && !room.currentTopicId && !room.story.trim()
+    const updated: Room = {
+      ...room,
+      topics: [...room.topics, topic],
+      ...(isFirst ? {
+        story: topic.title,
+        storyDescription: topic.description,
+        jiraTicket: topic.jiraTicket,
+        jiraLink: topic.jiraLink,
+        currentTopicId: topic.id,
+      } : {}),
+    }
     await saveRoom(updated)
     return updated
   },
@@ -212,13 +244,14 @@ export const store = {
     if (!room) return null
     const topic = room.topics.find((t) => t.id === topicId)
     if (!topic) return null
+    // Keep topic in queue — it's only removed when votes are actually revealed
     const updated: Room = {
       ...room,
       story: topic.title,
       storyDescription: topic.description,
       jiraTicket: topic.jiraTicket,
       jiraLink: topic.jiraLink,
-      topics: room.topics.filter((t) => t.id !== topicId),
+      currentTopicId: topicId,
       phase: 'voting',
       votes: {},
     }
