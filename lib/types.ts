@@ -56,10 +56,10 @@ export interface EmojiThrow {
   emoji: string
 }
 
-export const CARD_VALUES = ['0', '1', '2', '3', '5', '8', '13', '21', '?', '☕']
+export const CARD_VALUES = ['0', '1', '2', '3', '5', '8', '13', '21']
 
 export const CARD_TEMPLATES: Record<CardTemplate, string[]> = {
-  fibonacci: ['1', '2', '3', '5', '8', '13', '21', '34', '?', '☕'],
+  fibonacci: ['1', '2', '3', '5', '8', '13', '21', '34'],
   tshirt: ['XS', 'S', 'M', 'L', 'XL', 'XXL', '?', '☕'],
 }
 

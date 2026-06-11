@@ -1024,7 +1024,7 @@ export function RoomView({ roomId }: { roomId: string }) {
           </div>
           <div className="flex items-center gap-3">
             {/* Theme picker */}
-            <div className="hidden sm:flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5">
               {THEMES.map((t) => (
                 <button
                   key={t.id}
@@ -1040,7 +1040,7 @@ export function RoomView({ roomId }: { roomId: string }) {
                 />
               ))}
             </div>
-            <span className="hidden sm:block w-px h-4 shrink-0" style={{ backgroundColor: 'rgba(255,255,255,0.08)' }} />
+            <span className="w-px h-4 shrink-0" style={{ backgroundColor: 'rgba(255,255,255,0.08)' }} />
             <button onClick={handleLeave} className="flex items-center gap-1.5 text-zinc-600 hover:text-zinc-300 text-xs transition-colors py-2 px-1 -mr-1">
               Leave <LogOut className="w-3.5 h-3.5" />
             </button>
