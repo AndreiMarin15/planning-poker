@@ -20,7 +20,7 @@ import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
 import {
   Copy, Check, Eye, RotateCcw, LogOut, ChevronDown, Plus, X,
-  Play, Link2, ExternalLink, Download, LayoutList, History, Table2, Upload,
+  Play, Link2, ExternalLink, Download, LayoutList, History, Table2, Upload, Search,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { extractJiraTicket, isJiraUrl } from '@/lib/jira'
@@ -28,6 +28,7 @@ import { parseImportFile } from '@/lib/import'
 import { AvatarImg, AvatarPicker, DEFAULT_AVATAR, type AvatarStyleId } from '@/components/avatar'
 import { useRoomStore } from '@/lib/room-store'
 import { useTheme, THEMES, type ThemeId } from '@/lib/theme'
+import { useJira } from '@/lib/use-jira'
 
 // ── Cookie session helpers ────────────────────────────────────────────────────
 
@@ -300,6 +301,9 @@ export function RoomView({ roomId }: { roomId: string }) {
   // ── Theme (per-user, localStorage) ──
   const { theme, themeId, setTheme } = useTheme()
 
+  // ── Jira OAuth ──
+  const jira = useJira(`/room/${roomId}`)
+
   // ── Zustand ──
   const room = useRoomStore((s) => s.room)
   const participantId = useRoomStore((s) => s.participantId)
@@ -322,6 +326,49 @@ export function RoomView({ roomId }: { roomId: string }) {
   const [jiraLink, setJiraLink] = useState('')
   const [storyDescription, setStoryDescription] = useState('')
   const storyFocusedRef = useRef(false)
+
+  // Jira auto-fetch + search state
+  const [jiraFetching, setJiraFetching] = useState(false)
+  const [jiraIssueData, setJiraIssueData] = useState<{ key: string; summary: string; description: string } | null>(null)
+  const jiraFetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [jiraSearch, setJiraSearch] = useState('')
+  const [jiraSearchResults, setJiraSearchResults] = useState<import('@/lib/use-jira').JiraSprintIssue[]>([])
+  const [jiraSearchOpen, setJiraSearchOpen] = useState(false)
+  const [jiraSearchLoading, setJiraSearchLoading] = useState(false)
+  const jiraSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Jira search debounce
+  useEffect(() => {
+    if (jiraSearchTimer.current) clearTimeout(jiraSearchTimer.current)
+    if (!jira.status?.connected || !jiraSearch.trim()) { setJiraSearchResults([]); return }
+    jiraSearchTimer.current = setTimeout(async () => {
+      setJiraSearchLoading(true)
+      const results = await jira.searchIssues(jiraSearch)
+      setJiraSearchResults(results)
+      setJiraSearchLoading(false)
+    }, 400)
+    return () => { if (jiraSearchTimer.current) clearTimeout(jiraSearchTimer.current) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jiraSearch, jira.status?.connected])
+
+  // Auto-fetch Jira issue when ticket key changes (debounced 600ms)
+  useEffect(() => {
+    if (jiraFetchTimer.current) clearTimeout(jiraFetchTimer.current)
+    setJiraIssueData(null)
+    if (!jira.status?.connected || !jiraTicket.match(/^[A-Z][A-Z0-9_]+-\d+$/)) return
+    jiraFetchTimer.current = setTimeout(async () => {
+      setJiraFetching(true)
+      const issue = await jira.fetchIssue(jiraTicket)
+      setJiraFetching(false)
+      if (!issue) return
+      setJiraIssueData({ key: issue.key, summary: issue.summary, description: issue.description })
+      // Auto-fill story title if empty
+      if (!story.trim() && issue.summary) setStory(issue.summary)
+      if (!storyDescription.trim() && issue.description) setStoryDescription(issue.description)
+    }, 600)
+    return () => { if (jiraFetchTimer.current) clearTimeout(jiraFetchTimer.current) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jiraTicket, jira.status?.connected])
 
   // Emoji throws are handled imperatively via WAAPI — no React state needed
   const [fullPickerTarget, setFullPickerTarget] = useState<Participant | null>(null)
@@ -498,7 +545,18 @@ export function RoomView({ roomId }: { roomId: string }) {
   }
 
   async function handleReveal() {
-    await fetch(`/api/rooms/${roomId}/reveal`, { method: 'POST' })
+    const res = await fetch(`/api/rooms/${roomId}/reveal`, { method: 'POST' })
+    if (!jira.status?.connected || !jiraTicket) return
+    const { room: revealed } = await res.json().catch(() => ({ room: null }))
+    if (!revealed) return
+    const votes = Object.values(revealed.votes as Record<string, string>).filter(Boolean)
+    const nums = votes.map(Number).filter((n) => !isNaN(n))
+    if (nums.length === 0) return
+    const allSame = nums.every((n) => n === nums[0])
+    if (allSame) {
+      const ok = await jira.writeEstimate(jiraTicket, nums[0])
+      if (ok) toast(`Story points (${nums[0]}) written to ${jiraTicket}`, { duration: 3000 })
+    }
   }
 
   async function handleReset() {
@@ -705,6 +763,17 @@ export function RoomView({ roomId }: { roomId: string }) {
     newTopicDescription, setNewTopicDescription,
     handleAddTopic, handleTopicLinkChange, handleStartTopic, handleRemoveTopic,
     onImportClick: () => sidebarImportRef.current?.click(),
+    onJiraSprintImport: jira.status?.connected ? async () => {
+      const issues = await jira.fetchSprint()
+      if (!issues.length) { toast('No issues found in active sprint', { duration: 2500 }); return }
+      for (const issue of issues) {
+        await fetch(`/api/rooms/${roomId}/topics`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: issue.summary, jiraTicket: issue.key, jiraLink: issue.url, description: '' }),
+        })
+      }
+      toast(`Imported ${issues.length} issues from sprint`, { duration: 2500 })
+    } : undefined,
   }
 
   // ── Table pane (shared between mobile and desktop main) ───────────────────────
@@ -763,16 +832,84 @@ export function RoomView({ roomId }: { roomId: string }) {
 
         {/* Story row */}
         <div className="flex gap-2 px-3 pt-3 pb-2">
-          <Input
-            placeholder="JIRA-123"
-            value={jiraTicket}
-            onChange={(e) => setJiraTicket(e.target.value.toUpperCase())}
-            onFocus={() => { storyFocusedRef.current = true }}
-            onBlur={handleStoryBlur}
-            onKeyDown={(e) => e.key === 'Enter' && storyRef.current?.focus()}
-            className="w-24 sm:w-[7.5rem] h-10 text-xs font-mono uppercase tracking-wider text-blue-300 placeholder:text-zinc-700 focus-visible:ring-violet-500/50"
-            style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.08)' }}
-          />
+          <div className="relative">
+            <Input
+              placeholder="JIRA-123"
+              value={jiraTicket}
+              onChange={(e) => setJiraTicket(e.target.value.toUpperCase())}
+              onFocus={() => { storyFocusedRef.current = true }}
+              onBlur={handleStoryBlur}
+              onKeyDown={(e) => e.key === 'Enter' && storyRef.current?.focus()}
+              className="w-24 sm:w-[7.5rem] h-10 text-xs font-mono uppercase tracking-wider text-blue-300 placeholder:text-zinc-700 focus-visible:ring-violet-500/50"
+              style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: jiraIssueData ? 'var(--accent)' : 'rgba(255,255,255,0.08)' }}
+            />
+            {jiraFetching && (
+              <span className="absolute right-2 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: 'var(--accent)' }} />
+            )}
+            {jiraIssueData && !jiraFetching && (
+              <span className="absolute right-2 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-emerald-400" />
+            )}
+          </div>
+          {/* Jira search button */}
+          {jira.status?.connected && (
+            <div className="relative">
+              <button
+                onClick={() => { setJiraSearchOpen((v) => !v); setJiraSearch('') }}
+                className="h-10 w-10 flex items-center justify-center rounded-md border transition-colors shrink-0"
+                style={jiraSearchOpen
+                  ? { color: 'var(--accent)', borderColor: 'var(--accent)', backgroundColor: 'var(--accent-muted)' }
+                  : { color: '#52525b', borderColor: 'rgba(63,63,70,0.5)' }}
+                title="Search Jira issues"
+              >
+                <Search className="w-3.5 h-3.5" />
+              </button>
+              {jiraSearchOpen && (
+                <div
+                  className="absolute top-12 left-0 z-50 rounded-lg shadow-xl overflow-hidden"
+                  style={{ width: 320, backgroundColor: 'var(--surface2)', border: '1px solid var(--border)' }}
+                >
+                  <div className="p-2 border-b" style={{ borderColor: 'var(--border)' }}>
+                    <input
+                      autoFocus
+                      placeholder="Search issues…"
+                      value={jiraSearch}
+                      onChange={(e) => setJiraSearch(e.target.value)}
+                      className="w-full bg-transparent text-sm text-zinc-200 placeholder:text-zinc-600 outline-none px-1"
+                    />
+                  </div>
+                  <div className="max-h-64 overflow-y-auto">
+                    {jiraSearchLoading && (
+                      <p className="text-xs text-zinc-600 px-3 py-2">Searching…</p>
+                    )}
+                    {!jiraSearchLoading && jiraSearch && jiraSearchResults.length === 0 && (
+                      <p className="text-xs text-zinc-600 px-3 py-2">No results</p>
+                    )}
+                    {!jiraSearchLoading && !jiraSearch && (
+                      <p className="text-xs text-zinc-600 px-3 py-2">Type to search your Jira issues</p>
+                    )}
+                    {jiraSearchResults.map((issue) => (
+                      <button
+                        key={issue.key}
+                        className="w-full text-left px-3 py-2 hover:bg-white/5 transition-colors"
+                        onMouseDown={() => {
+                          setJiraTicket(issue.key)
+                          if (!story.trim()) setStory(issue.summary)
+                          setJiraSearchOpen(false)
+                          setJiraSearch('')
+                        }}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-mono shrink-0" style={{ color: 'var(--accent)' }}>{issue.key}</span>
+                          {issue.status && <span className="text-[10px] text-zinc-600 shrink-0">{issue.status}</span>}
+                        </div>
+                        <p className="text-xs text-zinc-300 truncate mt-0.5">{issue.summary}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           <Input
             ref={storyRef}
             placeholder="What are you estimating?"
@@ -1041,6 +1178,25 @@ export function RoomView({ roomId }: { roomId: string }) {
               ))}
             </div>
             <span className="w-px h-4 shrink-0" style={{ backgroundColor: 'rgba(255,255,255,0.08)' }} />
+            {jira.status?.connected ? (
+              <button
+                onClick={jira.disconnect}
+                title={`Connected to ${jira.status.cloud_name}`}
+                className="flex items-center gap-1 text-xs font-medium transition-colors"
+                style={{ color: 'var(--accent)' }}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                Jira
+              </button>
+            ) : (
+              <button
+                onClick={jira.connect}
+                className="flex items-center gap-1 text-zinc-500 hover:text-zinc-300 text-xs transition-colors"
+              >
+                <Link2 className="w-3 h-3" /> Jira
+              </button>
+            )}
+            <span className="w-px h-4 shrink-0" style={{ backgroundColor: 'rgba(255,255,255,0.08)' }} />
             <button onClick={handleLeave} className="flex items-center gap-1.5 text-zinc-600 hover:text-zinc-300 text-xs transition-colors py-2 px-1 -mr-1">
               Leave <LogOut className="w-3.5 h-3.5" />
             </button>
@@ -1206,7 +1362,7 @@ function SidebarQueuePanel({
   newTopicLink,
   newTopicDescription, setNewTopicDescription,
   handleAddTopic, handleTopicLinkChange, handleStartTopic, handleRemoveTopic,
-  onImportClick,
+  onImportClick, onJiraSprintImport,
 }: {
   room: Room | null
   isModerator: boolean
@@ -1221,6 +1377,7 @@ function SidebarQueuePanel({
   handleStartTopic: (id: string) => void
   handleRemoveTopic: (id: string) => void
   onImportClick: () => void
+  onJiraSprintImport?: () => void
 }) {
   return (
     <div>
@@ -1233,6 +1390,17 @@ function SidebarQueuePanel({
               : 'No topics queued'}
           </span>
           <div className="flex items-center gap-2.5">
+            {onJiraSprintImport && (
+              <button
+                onClick={onJiraSprintImport}
+                className="flex items-center gap-1 text-[11px] transition-colors"
+                style={{ color: 'var(--accent)' }}
+                title="Import active sprint from Jira"
+              >
+                <Link2 className="w-3 h-3" />
+                Sprint
+              </button>
+            )}
             <button
               onClick={onImportClick}
               className="flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors"
