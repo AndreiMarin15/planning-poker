@@ -15,7 +15,7 @@ export async function GET(req: Request) {
     : `text ~ "${q}" ORDER BY updated DESC`
 
   const res = await fetch(
-    `https://api.atlassian.com/ex/jira/${auth.session.cloud_id}/rest/api/3/search?jql=${encodeURIComponent(jql)}&fields=summary,status,priority,customfield_10016,customfield_10028&maxResults=10`,
+    `https://api.atlassian.com/ex/jira/${auth.session.cloud_id}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=summary,status,priority,customfield_10016,customfield_10028&maxResults=10`,
     { headers: auth.headers }
   )
 

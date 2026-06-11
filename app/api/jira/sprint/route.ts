@@ -14,7 +14,7 @@ export async function GET(req: Request) {
     : `sprint in openSprints() ORDER BY rank ASC`
 
   const res = await fetch(
-    `https://api.atlassian.com/ex/jira/${auth.session.cloud_id}/rest/api/3/search?jql=${encodeURIComponent(jql)}&fields=summary,customfield_10016,customfield_10028,status,priority&maxResults=50`,
+    `https://api.atlassian.com/ex/jira/${auth.session.cloud_id}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=summary,customfield_10016,customfield_10028,status,priority&maxResults=50`,
     { headers: auth.headers }
   )
 
