@@ -138,14 +138,14 @@ function TableCard({
         </button>
       </div>
       {isFacilitator ? (
-        <div className="w-11 h-[3.75rem] rounded-xl border border-zinc-700/30 flex items-center justify-center"
+        <div className="w-8 h-10 sm:w-11 sm:h-[3.75rem] rounded-lg sm:rounded-xl border border-zinc-700/30 flex items-center justify-center"
           style={{ backgroundColor: 'rgba(82,82,91,0.15)' }}>
-          <span className="text-lg leading-none">👀</span>
+          <span className="text-sm sm:text-lg leading-none">👀</span>
         </div>
       ) : (
         <div
           className={cn(
-            'w-11 h-[3.75rem] rounded-xl border relative overflow-hidden transition-all duration-300',
+            'w-8 h-10 sm:w-11 sm:h-[3.75rem] rounded-lg sm:rounded-xl border relative overflow-hidden transition-all duration-300',
             !voted && !revealed && 'border-zinc-600/30',
             voted && !revealed && 'border-blue-400/20',
             revealed && 'border-slate-500/30',
@@ -154,14 +154,14 @@ function TableCard({
         >
           {revealed && (
             <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-white font-bold text-xl tabular-nums leading-none">{value ?? '—'}</span>
+              <span className="text-white font-bold text-base sm:text-xl tabular-nums leading-none">{value ?? '—'}</span>
             </div>
           )}
         </div>
       )}
-      <div className="flex flex-col items-center gap-1">
-        <AvatarImg name={name} style={avatarStyle} size={28} isMe={isMe} />
-        <span className="text-[12px] font-semibold leading-none" style={isMe ? { color: 'var(--accent)' } : { color: '#d4d4d8' }}>
+      <div className="flex flex-col items-center gap-0.5 sm:gap-1">
+        <AvatarImg name={name} style={avatarStyle} size={22} isMe={isMe} />
+        <span className="text-[10px] sm:text-[12px] font-semibold leading-none max-w-[4rem] truncate text-center" style={isMe ? { color: 'var(--accent)' } : { color: '#d4d4d8' }}>
           {name}
         </span>
       </div>
@@ -839,16 +839,16 @@ export function RoomView({ roomId }: { roomId: string }) {
       {/* Zone 1 — table, fills all available height */}
       <div className="flex-1 min-h-0 w-full flex flex-col items-center justify-center px-4">
         {seats.top.length > 0 && (
-          <div className="flex items-end gap-4 sm:gap-7 justify-center pb-4 sm:pb-8">{seats.top.map(renderSeat)}</div>
+          <div className="flex items-end gap-2 sm:gap-7 justify-center pb-3 sm:pb-8">{seats.top.map(renderSeat)}</div>
         )}
-        <div className="flex items-center justify-center gap-4 sm:gap-8 w-full">
-          {seats.left.length > 0 && <div className="flex flex-col gap-4 sm:gap-7">{seats.left.map(renderSeat)}</div>}
+        <div className="flex items-center justify-center gap-2 sm:gap-8 w-full">
+          {seats.left.length > 0 && <div className="flex flex-col gap-2 sm:gap-7">{seats.left.map(renderSeat)}</div>}
           <div
             className="relative flex items-center justify-center shrink-0"
             style={{
-              minWidth: 'min(260px, 55vw)', minHeight: 110,
+              minWidth: 'min(180px, 42vw)', minHeight: 80,
               borderRadius: '999px',
-              padding: '24px 64px',
+              padding: 'clamp(12px, 3vw, 24px) clamp(28px, 7vw, 64px)',
               background: 'var(--surface)',
               border: '6px solid #3b1f0a',
               boxShadow: '0 0 0 1px #1a0d05, 0 0 0 3px #5c3214, 0 12px 40px rgba(0,0,0,0.6)',
@@ -857,28 +857,28 @@ export function RoomView({ roomId }: { roomId: string }) {
             {/* Table content */}
             <div className="relative z-10 flex items-center justify-center">
               {room?.phase === 'voting' ? (
-                <div className="text-center space-y-1.5">
-                  <p className="text-zinc-300 text-sm font-medium">Voting in progress</p>
-                  {votedCount > 0 && <p className="text-zinc-400/60 text-xs tabular-nums">{votedCount} of {totalCount} voted</p>}
+                <div className="text-center space-y-1">
+                  <p className="text-zinc-300 text-xs sm:text-sm font-medium whitespace-nowrap">Voting in progress</p>
+                  {votedCount > 0 && <p className="text-zinc-400/60 text-[10px] sm:text-xs tabular-nums">{votedCount}/{totalCount} voted</p>}
                 </div>
               ) : (
-                <div className="text-center space-y-1">
+                <div className="text-center space-y-0.5 sm:space-y-1">
                   {consensus ? (
-                    <><p className="text-emerald-400/80 text-[11px] font-semibold uppercase tracking-widest">Consensus</p>
-                      <p className="text-white font-black text-5xl tabular-nums">{consensus}</p></>
+                    <><p className="text-emerald-400/80 text-[9px] sm:text-[11px] font-semibold uppercase tracking-widest">Consensus</p>
+                      <p className="text-white font-black text-3xl sm:text-5xl tabular-nums">{consensus}</p></>
                   ) : (
-                    <><p className="text-zinc-400/60 text-[11px] font-semibold uppercase tracking-widest">Average</p>
-                      <p className="text-white font-black text-5xl tabular-nums">{calcAverage(revealedVotes)}</p>
-                      <p className="text-zinc-500 text-xs">No consensus</p></>
+                    <><p className="text-zinc-400/60 text-[9px] sm:text-[11px] font-semibold uppercase tracking-widest">Average</p>
+                      <p className="text-white font-black text-3xl sm:text-5xl tabular-nums">{calcAverage(revealedVotes)}</p>
+                      <p className="text-zinc-500 text-[10px] sm:text-xs">No consensus</p></>
                   )}
                 </div>
               )}
             </div>
           </div>
-          {seats.right.length > 0 && <div className="flex flex-col gap-4 sm:gap-7">{seats.right.map(renderSeat)}</div>}
+          {seats.right.length > 0 && <div className="flex flex-col gap-2 sm:gap-7">{seats.right.map(renderSeat)}</div>}
         </div>
         {seats.bottom.length > 0 && (
-          <div className="flex items-start gap-4 sm:gap-7 justify-center pt-4 sm:pt-8">{seats.bottom.map(renderSeat)}</div>
+          <div className="flex items-start gap-2 sm:gap-7 justify-center pt-3 sm:pt-8">{seats.bottom.map(renderSeat)}</div>
         )}
       </div>
 
@@ -886,31 +886,47 @@ export function RoomView({ roomId }: { roomId: string }) {
       <div className="shrink-0 w-full" style={{ borderTop: '1px solid var(--border)' }}>
 
         {/* Story row */}
-        <div className="flex gap-2 px-3 pt-3 pb-2">
-          <div className="relative">
+        <div className="flex flex-col gap-2 px-3 pt-3 pb-2">
+          {/* Top sub-row: Jira ticket + story title (full width on mobile) */}
+          <div className="flex gap-2">
+            <div className="relative">
+              <Input
+                placeholder="JIRA-123"
+                value={jiraTicket}
+                onChange={(e) => setJiraTicket(e.target.value.toUpperCase())}
+                onFocus={() => { storyFocusedRef.current = true }}
+                onBlur={handleStoryBlur}
+                onKeyDown={(e) => e.key === 'Enter' && storyRef.current?.focus()}
+                className="w-20 sm:w-[7.5rem] h-9 text-xs font-mono uppercase tracking-wider text-blue-300 placeholder:text-zinc-700 focus-visible:ring-violet-500/50"
+                style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: jiraIssueData ? 'var(--accent)' : 'rgba(255,255,255,0.08)' }}
+              />
+              {jiraFetching && (
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: 'var(--accent)' }} />
+              )}
+              {jiraIssueData && !jiraFetching && (
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-emerald-400" />
+              )}
+            </div>
             <Input
-              placeholder="JIRA-123"
-              value={jiraTicket}
-              onChange={(e) => setJiraTicket(e.target.value.toUpperCase())}
+              ref={storyRef}
+              placeholder="What are you estimating?"
+              value={story}
+              onChange={(e) => setStory(e.target.value)}
               onFocus={() => { storyFocusedRef.current = true }}
               onBlur={handleStoryBlur}
-              onKeyDown={(e) => e.key === 'Enter' && storyRef.current?.focus()}
-              className="w-24 sm:w-[7.5rem] h-10 text-xs font-mono uppercase tracking-wider text-blue-300 placeholder:text-zinc-700 focus-visible:ring-violet-500/50"
-              style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: jiraIssueData ? 'var(--accent)' : 'rgba(255,255,255,0.08)' }}
+              onKeyDown={(e) => e.key === 'Enter' && storyRef.current?.blur()}
+              className="flex-1 h-9 text-sm text-zinc-200 placeholder:text-zinc-700 focus-visible:ring-violet-500/50"
+              style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.08)' }}
             />
-            {jiraFetching && (
-              <span className="absolute right-2 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: 'var(--accent)' }} />
-            )}
-            {jiraIssueData && !jiraFetching && (
-              <span className="absolute right-2 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-emerald-400" />
-            )}
           </div>
+          {/* Bottom sub-row: action buttons */}
+          <div className="flex gap-2 items-center">
           {/* Jira search button */}
           {jira.status?.connected && (
             <div className="relative">
               <button
                 onClick={() => { setJiraSearchOpen((v) => !v); setJiraSearch('') }}
-                className="h-10 w-10 flex items-center justify-center rounded-md border transition-colors shrink-0"
+                className="h-9 w-9 flex items-center justify-center rounded-md border transition-colors shrink-0"
                 style={jiraSearchOpen
                   ? { color: 'var(--accent)', borderColor: 'var(--accent)', backgroundColor: 'var(--accent-muted)' }
                   : { color: '#52525b', borderColor: 'rgba(63,63,70,0.5)' }}
@@ -965,22 +981,11 @@ export function RoomView({ roomId }: { roomId: string }) {
               )}
             </div>
           )}
-          <Input
-            ref={storyRef}
-            placeholder="What are you estimating?"
-            value={story}
-            onChange={(e) => setStory(e.target.value)}
-            onFocus={() => { storyFocusedRef.current = true }}
-            onBlur={handleStoryBlur}
-            onKeyDown={(e) => e.key === 'Enter' && storyRef.current?.blur()}
-            className="flex-1 h-10 text-sm text-zinc-200 placeholder:text-zinc-700 focus-visible:ring-violet-500/50"
-            style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.08)' }}
-          />
           {/* Toggle details */}
           <button
             onClick={() => setShowStoryDetails((v) => !v)}
             title="Jira URL & description"
-            className="h-10 w-10 flex items-center justify-center rounded-md border transition-colors shrink-0"
+            className="h-9 w-9 flex items-center justify-center rounded-md border transition-colors shrink-0"
             style={showStoryDetails
               ? { color: 'var(--accent)', borderColor: 'var(--accent)', backgroundColor: 'var(--accent-muted)' }
               : { color: '#52525b', borderColor: 'rgba(63,63,70,0.5)' }}
@@ -988,9 +993,10 @@ export function RoomView({ roomId }: { roomId: string }) {
             <Link2 className="w-3.5 h-3.5" />
           </button>
           {/* Reveal / reset */}
+          <div className="flex-1" />
           {room?.phase === 'voting' ? (
             <Button onClick={handleReveal} disabled={votedCount === 0}
-              className="h-10 px-4 text-white text-sm font-semibold shrink-0 gap-2"
+              className="h-9 px-4 text-white text-sm font-semibold shrink-0 gap-2"
               style={{ backgroundColor: 'var(--accent)' }}>
               <Eye className="w-3.5 h-3.5" />
               Reveal
@@ -998,11 +1004,12 @@ export function RoomView({ roomId }: { roomId: string }) {
             </Button>
           ) : (
             <Button onClick={handleReset} variant="ghost"
-              className="h-10 px-4 text-zinc-400 hover:text-zinc-100 text-sm shrink-0 gap-2">
+              className="h-9 px-4 text-zinc-400 hover:text-zinc-100 text-sm shrink-0 gap-2">
               <RotateCcw className="w-3.5 h-3.5" />
               {room?.topics && room.topics.length > 0 ? 'Next' : 'New Round'}
             </Button>
           )}
+          </div>
         </div>
 
         {/* Collapsible: Jira URL + description */}
@@ -1043,7 +1050,7 @@ export function RoomView({ roomId }: { roomId: string }) {
 
         {/* Voting cards */}
         {room?.phase === 'voting' && participantId && !isFacilitator && (
-          <div className="flex flex-wrap justify-center gap-2 sm:gap-2.5 px-3 pb-3">
+          <div className="flex justify-center gap-1 sm:gap-2.5 px-3 pb-3">
             {CARD_VALUES.map((v) => (
               <PokerCard key={v} value={v} selected={myVote === v} onClick={() => handleVote(v)} />
             ))}
