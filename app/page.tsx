@@ -186,7 +186,7 @@ export default function Home() {
           Create Room
         </Button>
         <Button onClick={() => setShowJoin(true)} variant="outline" className="flex-1 border-zinc-800 text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100 h-10 text-sm">
-          Join to this Room bitches
+          Join to this Room bitchesss
         </Button>
       </div>
 
