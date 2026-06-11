@@ -354,15 +354,21 @@ export function RoomView({ roomId }: { roomId: string }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jiraSearch, jira.status?.connected])
 
-  // Sync myVote with server state: set on reconnect, clear when round resets
+  // Sync myVote with server state: set on reconnect, clear when round resets.
+  // While voteInflightRef is set the user has a pending local selection —
+  // ignore server updates until the server catches up to that exact value.
   useEffect(() => {
     if (!participantId || !room) return
     const serverVote = room.votes[participantId]
     if (room.phase === 'voting') {
-      if (serverVote) setMyVote(serverVote)
-      else setMyVote(undefined)
+      if (voteInflightRef.current !== null) {
+        if (serverVote === voteInflightRef.current) voteInflightRef.current = null
+        // else: server is behind — keep the optimistic value, don't sync
+      } else {
+        if (serverVote) setMyVote(serverVote)
+        else setMyVote(undefined)
+      }
     }
-  // Only re-run when the round changes (phase or vote cleared/set for us)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room?.phase, participantId, room?.votes[participantId ?? '']])
 
@@ -406,6 +412,9 @@ export function RoomView({ roomId }: { roomId: string }) {
   const emojiSinceRef = useRef(Date.now())
   const seenEmojiIds = useRef(new Set<string>())
   const sidebarImportRef = useRef<HTMLInputElement>(null)
+  // Tracks the last vote the user clicked. Cleared once the server confirms it.
+  // Prevents stale API responses from reverting optimistic UI during rapid clicking.
+  const voteInflightRef = useRef<string | null>(null)
 
   const [myVote, setMyVote] = useState<string | undefined>(undefined)
   const isModerator = room && participantId ? room.moderatorId === participantId : false
@@ -590,6 +599,7 @@ export function RoomView({ roomId }: { roomId: string }) {
 
   async function handleVote(value: string) {
     if (!participantId || room?.phase !== 'voting' || isFacilitator) return
+    voteInflightRef.current = value
     setMyVote(value)
     fetch(`/api/rooms/${roomId}/vote`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
