@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
+import Ably from 'ably'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useRouter } from 'next/navigation'
 import type { Room, Participant, HistoryEntry, EmojiThrow, Topic } from '@/lib/types'
@@ -20,7 +21,7 @@ import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
 import {
   Copy, Check, Eye, RotateCcw, LogOut, ChevronDown, Plus, X,
-  Play, Link2, ExternalLink, Download, LayoutList, History, Table2, Upload,
+  Play, Link2, ExternalLink, Download, LayoutList, History, Table2, Upload, Search,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { extractJiraTicket, isJiraUrl } from '@/lib/jira'
@@ -28,6 +29,8 @@ import { parseImportFile } from '@/lib/import'
 import { AvatarImg, AvatarPicker, DEFAULT_AVATAR, type AvatarStyleId } from '@/components/avatar'
 import { useRoomStore } from '@/lib/room-store'
 import { useTheme, THEMES, type ThemeId } from '@/lib/theme'
+import { useJira } from '@/lib/use-jira'
+import { JiraPicker } from '@/components/jira-picker'
 
 // ── Cookie session helpers ────────────────────────────────────────────────────
 
@@ -135,14 +138,14 @@ function TableCard({
         </button>
       </div>
       {isFacilitator ? (
-        <div className="w-11 h-[3.75rem] rounded-xl border border-zinc-700/30 flex items-center justify-center"
+        <div className="w-8 h-10 sm:w-11 sm:h-[3.75rem] rounded-lg sm:rounded-xl border border-zinc-700/30 flex items-center justify-center"
           style={{ backgroundColor: 'rgba(82,82,91,0.15)' }}>
-          <span className="text-lg leading-none">👀</span>
+          <span className="text-sm sm:text-lg leading-none">👀</span>
         </div>
       ) : (
         <div
           className={cn(
-            'w-11 h-[3.75rem] rounded-xl border relative overflow-hidden transition-all duration-300',
+            'w-8 h-10 sm:w-11 sm:h-[3.75rem] rounded-lg sm:rounded-xl border relative overflow-hidden transition-all duration-300',
             !voted && !revealed && 'border-zinc-600/30',
             voted && !revealed && 'border-blue-400/20',
             revealed && 'border-slate-500/30',
@@ -151,14 +154,14 @@ function TableCard({
         >
           {revealed && (
             <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-white font-bold text-xl tabular-nums leading-none">{value ?? '—'}</span>
+              <span className="text-white font-bold text-base sm:text-xl tabular-nums leading-none">{value ?? '—'}</span>
             </div>
           )}
         </div>
       )}
-      <div className="flex flex-col items-center gap-1">
-        <AvatarImg name={name} style={avatarStyle} size={28} isMe={isMe} />
-        <span className="text-[12px] font-semibold leading-none" style={isMe ? { color: 'var(--accent)' } : { color: '#d4d4d8' }}>
+      <div className="flex flex-col items-center gap-0.5 sm:gap-1">
+        <AvatarImg name={name} style={avatarStyle} size={22} isMe={isMe} />
+        <span className="text-[10px] sm:text-[12px] font-semibold leading-none max-w-[4rem] truncate text-center" style={isMe ? { color: 'var(--accent)' } : { color: '#d4d4d8' }}>
           {name}
         </span>
       </div>
@@ -300,6 +303,9 @@ export function RoomView({ roomId }: { roomId: string }) {
   // ── Theme (per-user, localStorage) ──
   const { theme, themeId, setTheme } = useTheme()
 
+  // ── Jira OAuth ──
+  const jira = useJira(`/room/${roomId}`)
+
   // ── Zustand ──
   const room = useRoomStore((s) => s.room)
   const participantId = useRoomStore((s) => s.participantId)
@@ -323,6 +329,68 @@ export function RoomView({ roomId }: { roomId: string }) {
   const [storyDescription, setStoryDescription] = useState('')
   const storyFocusedRef = useRef(false)
 
+  // Jira auto-fetch + search state
+  const [jiraFetching, setJiraFetching] = useState(false)
+  const [jiraIssueData, setJiraIssueData] = useState<{ key: string; summary: string; description: string } | null>(null)
+  const jiraFetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [showJiraPicker, setShowJiraPicker] = useState(false)
+  const [jiraSearch, setJiraSearch] = useState('')
+  const [jiraSearchResults, setJiraSearchResults] = useState<import('@/lib/use-jira').JiraSprintIssue[]>([])
+  const [jiraSearchOpen, setJiraSearchOpen] = useState(false)
+  const [jiraSearchLoading, setJiraSearchLoading] = useState(false)
+  const jiraSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Jira search debounce
+  useEffect(() => {
+    if (jiraSearchTimer.current) clearTimeout(jiraSearchTimer.current)
+    if (!jira.status?.connected || !jiraSearch.trim()) { setJiraSearchResults([]); return }
+    jiraSearchTimer.current = setTimeout(async () => {
+      setJiraSearchLoading(true)
+      const results = await jira.searchIssues(jiraSearch)
+      setJiraSearchResults(results)
+      setJiraSearchLoading(false)
+    }, 400)
+    return () => { if (jiraSearchTimer.current) clearTimeout(jiraSearchTimer.current) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jiraSearch, jira.status?.connected])
+
+  // Sync myVote with server state: set on reconnect, clear when round resets.
+  // While voteInflightRef is set the user has a pending local selection —
+  // ignore server updates until the server catches up to that exact value.
+  useEffect(() => {
+    if (!participantId || !room) return
+    const serverVote = room.votes[participantId]
+    if (room.phase === 'voting') {
+      if (voteInflightRef.current !== null) {
+        if (serverVote === voteInflightRef.current) voteInflightRef.current = null
+        // else: server is behind — keep the optimistic value, don't sync
+      } else {
+        if (serverVote) setMyVote(serverVote)
+        else setMyVote(undefined)
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room?.phase, participantId, room?.votes[participantId ?? '']])
+
+  // Auto-fetch Jira issue when ticket key changes (debounced 600ms)
+  useEffect(() => {
+    if (jiraFetchTimer.current) clearTimeout(jiraFetchTimer.current)
+    setJiraIssueData(null)
+    if (!jira.status?.connected || !jiraTicket.match(/^[A-Z][A-Z0-9_]+-\d+$/)) return
+    jiraFetchTimer.current = setTimeout(async () => {
+      setJiraFetching(true)
+      const issue = await jira.fetchIssue(jiraTicket)
+      setJiraFetching(false)
+      if (!issue) return
+      setJiraIssueData({ key: issue.key, summary: issue.summary, description: issue.description })
+      // Auto-fill story title if empty
+      if (!story.trim() && issue.summary) setStory(issue.summary)
+      if (!storyDescription.trim() && issue.description) setStoryDescription(issue.description)
+    }, 600)
+    return () => { if (jiraFetchTimer.current) clearTimeout(jiraFetchTimer.current) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jiraTicket, jira.status?.connected])
+
   // Emoji throws are handled imperatively via WAAPI — no React state needed
   const [fullPickerTarget, setFullPickerTarget] = useState<Participant | null>(null)
   const [lastEmoji, setLastEmoji] = useState<string | null>(() =>
@@ -340,131 +408,172 @@ export function RoomView({ roomId }: { roomId: string }) {
   const [newTopicDescription, setNewTopicDescription] = useState('')
 
   const storyRef = useRef<HTMLInputElement>(null)
-  const esRef = useRef<EventSource | null>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const emojiSinceRef = useRef(Date.now())
+  const seenEmojiIds = useRef(new Set<string>())
   const sidebarImportRef = useRef<HTMLInputElement>(null)
+  // Tracks the last vote the user clicked. Cleared once the server confirms it.
+  // Prevents stale API responses from reverting optimistic UI during rapid clicking.
+  const voteInflightRef = useRef<string | null>(null)
 
-  const myVote = room && participantId ? room.votes[participantId] : undefined
+  const [myVote, setMyVote] = useState<string | undefined>(undefined)
   const isModerator = room && participantId ? room.moderatorId === participantId : false
   const myParticipant = room && participantId ? room.participants.find((p) => p.id === participantId) : null
   const isFacilitator = myParticipant?.role === 'facilitator'
 
-  // ── SSE ──────────────────────────────────────────────────────────────────────
+  // ── Emoji animation (shared by polling handler) ───────────────────────────────
 
-  const connectSSE = useCallback((pid: string) => {
-    if (esRef.current) esRef.current.close()
-    const es = new EventSource(`/api/rooms/${roomId}/events`)
+  function animateEmoji(data: EmojiThrow, pid: string | null) {
+    if (data.toId === pid) toast(`Someone threw ${data.emoji} at you!`, { duration: 2500 })
 
-    es.onmessage = (e) => {
-      const data: Room = JSON.parse(e.data)
-      setRoom(data)
-      setRoomGone(false)
-      if (!storyFocusedRef.current) {
-        setStory(data.story)
-        setJiraTicket(data.jiraTicket ?? '')
-        setJiraLink(data.jiraLink ?? '')
-        setStoryDescription(data.storyDescription ?? '')
+    const visibleEl = (selector: string) => {
+      const els = document.querySelectorAll<HTMLElement>(selector)
+      for (const el of els) {
+        const r = el.getBoundingClientRect()
+        if (r.width > 0 && r.height > 0) return { el, r }
       }
+      return null
     }
 
-    es.onerror = () => {
-      if (es.readyState === EventSource.CLOSED) {
-        esRef.current = null
-        setTimeout(() => {
-          fetch(`/api/rooms/${roomId}`)
-            .then((r) => { if (r.ok) connectSSE(pid); else setRoomGone(true) })
-            .catch(() => setTimeout(() => connectSSE(pid), 3000))
-        }, 1000)
-      }
+    const toMatch = visibleEl(`[data-pid="${data.toId}"]`)
+    if (!toMatch) return
+    const toX = toMatch.r.left + toMatch.r.width / 2
+    const toY = toMatch.r.top + toMatch.r.height / 2
+
+    const fromLeft = Math.random() < 0.5
+    const fromX = fromLeft ? -40 : window.innerWidth + 40
+    const fromY = window.innerHeight / 2
+    const arcY = -Math.min(Math.abs(toX - fromX) * 0.15 + 40, 120)
+
+    const el = document.createElement('div')
+    el.textContent = data.emoji
+    el.style.cssText = `
+      position: fixed;
+      left: 0; top: 0;
+      font-size: 1.3rem;
+      line-height: 1;
+      pointer-events: none;
+      user-select: none;
+      z-index: 9999;
+      will-change: transform, opacity;
+    `
+    document.body.appendChild(el)
+
+    const spin = fromLeft ? 1 : -1
+    const t = (p: number) => `translate(${fromX + (toX - fromX) * p}px, ${fromY + (toY - fromY) * p + arcY * Math.sin(Math.PI * p)}px) translate(-50%,-50%)`
+    el.animate(
+      [
+        { transform: `${t(0)} scale(0.4) rotate(${spin * 0}deg)`,     opacity: 0, offset: 0    },
+        { transform: `${t(0.05)} scale(1.1) rotate(${spin * 30}deg)`, opacity: 1, offset: 0.05 },
+        { transform: `${t(0.35)} scale(1.3) rotate(${spin * 130}deg)`,opacity: 1, offset: 0.35 },
+        { transform: `${t(0.65)} scale(1.2) rotate(${spin * 230}deg)`,opacity: 1, offset: 0.65 },
+        { transform: `${t(0.88)} scale(1.5) rotate(${spin * 310}deg)`,opacity: 1, offset: 0.88 },
+        { transform: `${t(1)}    scale(0)   rotate(${spin * 360}deg)`, opacity: 0, offset: 1    },
+      ],
+      { duration: 1100, easing: 'cubic-bezier(0.25, 0.1, 0.25, 1)', fill: 'forwards' }
+    ).onfinish = () => el.remove()
+  }
+
+  // ── Room update handler (shared by Ably and polling) ─────────────────────────
+
+  const applyRoomUpdate = useCallback((data: Room, pid: string | null) => {
+    setRoom(data)
+    setRoomGone(false)
+    if (!storyFocusedRef.current) {
+      setStory(data.story)
+      setJiraTicket(data.jiraTicket ?? '')
+      setJiraLink(data.jiraLink ?? '')
+      setStoryDescription(data.storyDescription ?? '')
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setRoom])
 
-    es.addEventListener('emoji', (e) => {
-      const data: EmojiThrow = JSON.parse((e as MessageEvent).data)
-      if (data.toId === pid) toast(`Someone threw ${data.emoji} at you!`, { duration: 2500 })
+  // ── Polling (fallback when Ably is unavailable) ───────────────────────────────
 
-      // querySelectorAll because tablePaneContent renders in both mobile and desktop DOM;
-      // pick the visible instance (non-zero bounding rect)
-      const visibleEl = (selector: string) => {
-        const els = document.querySelectorAll<HTMLElement>(selector)
-        for (const el of els) {
-          const r = el.getBoundingClientRect()
-          if (r.width > 0 && r.height > 0) return { el, r }
+  const startPolling = useCallback((pid: string | null) => {
+    if (pollRef.current) clearInterval(pollRef.current)
+    let consecutive404 = 0
+
+    async function poll() {
+      try {
+        const res = await fetch(`/api/rooms/${roomId}?since=${emojiSinceRef.current}`)
+        if (!res.ok) {
+          if (++consecutive404 >= 3) setRoomGone(true)
+          return
         }
-        return null
+        consecutive404 = 0
+        const { room: data, emojis } = await res.json()
+        applyRoomUpdate(data, pid)
+        if (Array.isArray(emojis)) {
+          for (const ev of emojis) {
+            if (seenEmojiIds.current.has(ev.id)) continue
+            seenEmojiIds.current.add(ev.id)
+            emojiSinceRef.current = Math.max(emojiSinceRef.current, ev.ts ?? 0)
+            animateEmoji(ev, pid)
+          }
+        }
+      } catch {
+        // network error — keep polling
       }
+    }
 
-      const toMatch = visibleEl(`[data-pid="${data.toId}"]`)
-      if (!toMatch) return
-      const toX = toMatch.r.left + toMatch.r.width / 2
-      const toY = toMatch.r.top + toMatch.r.height / 2
+    poll()
+    pollRef.current = setInterval(poll, 5000) // slow heartbeat — Ably handles real-time
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomId, applyRoomUpdate])
 
-      const fromLeft = Math.random() < 0.5
-      const fromX = fromLeft ? -40 : window.innerWidth + 40
-      const fromY = window.innerHeight / 2
+  // ── Ably real-time subscription ───────────────────────────────────────────────
 
-      const arcY = -Math.min(Math.abs(toX - fromX) * 0.15 + 40, 120)
+  const ablyRef = useRef<Ably.Realtime | null>(null)
 
+  const startAbly = useCallback((pid: string | null) => {
+    if (ablyRef.current) return
 
-      const el = document.createElement('div')
-      el.textContent = data.emoji
-      el.style.cssText = `
-        position: fixed;
-        left: 0; top: 0;
-        font-size: 1.3rem;
-        line-height: 1;
-        pointer-events: none;
-        user-select: none;
-        z-index: 9999;
-        will-change: transform, opacity;
-      `
-      document.body.appendChild(el)
+    const client = new Ably.Realtime({
+      authUrl: `/api/rooms/${roomId}/ably-token`,
+      authMethod: 'GET',
+    })
+    ablyRef.current = client
 
-      // spin direction matches throw direction for natural feel
-      const spin = fromLeft ? 1 : -1
-      const t = (p: number) => `translate(${fromX + (toX - fromX) * p}px, ${fromY + (toY - fromY) * p + arcY * Math.sin(Math.PI * p)}px) translate(-50%,-50%)`
-      el.animate(
-        [
-          { transform: `${t(0)} scale(0.4) rotate(${spin * 0}deg)`,   opacity: 0,   offset: 0    },
-          { transform: `${t(0.05)} scale(1.1) rotate(${spin * 30}deg)`, opacity: 1,   offset: 0.05 },
-          { transform: `${t(0.35)} scale(1.3) rotate(${spin * 130}deg)`, opacity: 1,  offset: 0.35 },
-          { transform: `${t(0.65)} scale(1.2) rotate(${spin * 230}deg)`, opacity: 1,  offset: 0.65 },
-          { transform: `${t(0.88)} scale(1.5) rotate(${spin * 310}deg)`, opacity: 1,  offset: 0.88 },
-          { transform: `${t(1)}    scale(0)   rotate(${spin * 360}deg)`, opacity: 0,   offset: 1    },
-        ],
-        { duration: 1100, easing: 'cubic-bezier(0.25, 0.1, 0.25, 1)', fill: 'forwards' }
-      ).onfinish = () => el.remove()
+    const channel = client.channels.get(`room:${roomId.toUpperCase()}`)
+
+    channel.subscribe('update', (msg) => {
+      applyRoomUpdate(msg.data as Room, pid)
     })
 
-    esRef.current = es
-  }, [roomId, setRoom])
+    channel.subscribe('emoji', (msg) => {
+      const ev = msg.data as EmojiThrow & { ts?: number }
+      if (seenEmojiIds.current.has(ev.id)) return
+      seenEmojiIds.current.add(ev.id)
+      animateEmoji(ev, pid)
+    })
 
-  useEffect(() => {
-    if (room || roomGone || showJoinDialog) return
-    const t = setTimeout(() => setRoomGone(true), 12000)
-    return () => clearTimeout(t)
-  }, [room, roomGone, showJoinDialog])
+    client.connection.on('failed', () => {
+      // Ably failed — fall back to faster polling
+      pollRef.current && clearInterval(pollRef.current)
+      startPolling(pid)
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomId, applyRoomUpdate, startPolling])
 
   useEffect(() => {
     const pid = getSession(roomId)
     async function init() {
-      const check = await fetch(`/api/rooms/${roomId}`).catch(() => null)
-      if (!check?.ok) { setRoomGone(true); return }
-      if (pid) {
-        setParticipantId(pid)
-        connectSSE(pid)
-      } else {
-        const es = new EventSource(`/api/rooms/${roomId}/events`)
-        es.onmessage = (e) => {
-          const r: Room = JSON.parse(e.data)
-          setRoom(r); setStory(r.story); setJiraTicket(r.jiraTicket ?? '')
-          setJiraLink(r.jiraLink ?? ''); setStoryDescription(r.storyDescription ?? '')
-        }
-        es.onerror = () => { if (es.readyState === EventSource.CLOSED) setRoomGone(true) }
-        esRef.current = es
-        setShowJoinDialog(true)
-      }
+      const res = await fetch(`/api/rooms/${roomId}`).catch(() => null)
+      if (!res?.ok) { setRoomGone(true); return }
+      const { room: data } = await res.json()
+      applyRoomUpdate(data, pid)
+      if (pid) setParticipantId(pid)
+      else setShowJoinDialog(true)
+      startAbly(pid)
+      startPolling(pid) // slow heartbeat for reconnect detection
     }
     init()
-    return () => esRef.current?.close()
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current)
+      ablyRef.current?.close()
+      ablyRef.current = null
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId])
 
@@ -484,21 +593,34 @@ export function RoomView({ roomId }: { roomId: string }) {
       setParticipantId(pid); setRoom(r)
       setStory(r.story); setJiraTicket(r.jiraTicket ?? '')
       setJiraLink(r.jiraLink ?? ''); setStoryDescription(r.storyDescription ?? '')
-      setShowJoinDialog(false); connectSSE(pid)
+      setShowJoinDialog(false); startPolling(pid)
     } finally { setJoining(false) }
   }
 
   async function handleVote(value: string) {
     if (!participantId || room?.phase !== 'voting' || isFacilitator) return
-    setRoom({ ...room!, votes: { ...room!.votes, [participantId]: value } })
-    await fetch(`/api/rooms/${roomId}/vote`, {
+    voteInflightRef.current = value
+    setMyVote(value)
+    fetch(`/api/rooms/${roomId}/vote`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ participantId, value }),
     })
   }
 
   async function handleReveal() {
-    await fetch(`/api/rooms/${roomId}/reveal`, { method: 'POST' })
+    const res = await fetch(`/api/rooms/${roomId}/reveal`, { method: 'POST' })
+    const { room: revealed } = await res.json().catch(() => ({ room: null }))
+    if (!revealed) return
+    setRoom(revealed)
+    if (!jira.status?.connected || !jiraTicket) return
+    const votes = Object.values(revealed.votes as Record<string, string>).filter(Boolean)
+    const nums = votes.map(Number).filter((n) => !isNaN(n))
+    if (nums.length === 0) return
+    const allSame = nums.every((n) => n === nums[0])
+    if (allSame) {
+      const ok = await jira.writeEstimate(jiraTicket, nums[0])
+      if (ok) toast(`Story points (${nums[0]}) written to ${jiraTicket}`, { duration: 3000 })
+    }
   }
 
   async function handleReset() {
@@ -506,7 +628,8 @@ export function RoomView({ roomId }: { roomId: string }) {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
     })
     const { room: r } = await res.json()
-    setStory(r.story); setJiraTicket(r.jiraTicket ?? '')
+    setRoom(r)
+    setStory(r.story ?? ''); setJiraTicket(r.jiraTicket ?? '')
     setJiraLink(r.jiraLink ?? ''); setStoryDescription(r.storyDescription ?? '')
   }
 
@@ -540,9 +663,9 @@ export function RoomView({ roomId }: { roomId: string }) {
       body: JSON.stringify({ topicId }),
     })
     const { room: r } = await res.json()
+    setRoom(r)
     setStory(r.story); setJiraTicket(r.jiraTicket ?? '')
     setJiraLink(r.jiraLink ?? ''); setStoryDescription(r.storyDescription ?? '')
-    // Switch to table view on mobile after starting a topic
     setMobileTab('table')
   }
 
@@ -705,6 +828,17 @@ export function RoomView({ roomId }: { roomId: string }) {
     newTopicDescription, setNewTopicDescription,
     handleAddTopic, handleTopicLinkChange, handleStartTopic, handleRemoveTopic,
     onImportClick: () => sidebarImportRef.current?.click(),
+    onJiraPickerOpen: jira.status?.connected ? () => setShowJiraPicker(true) : undefined,
+  }
+
+  async function handleJiraPickerAdd(issues: import('@/lib/use-jira').JiraSprintIssue[]) {
+    for (const issue of issues) {
+      await fetch(`/api/rooms/${roomId}/topics`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: issue.summary, jiraTicket: issue.key, jiraLink: issue.url, description: '' }),
+      })
+    }
+    toast(`Added ${issues.length} issue${issues.length > 1 ? 's' : ''} to queue`, { duration: 2500 })
   }
 
   // ── Table pane (shared between mobile and desktop main) ───────────────────────
@@ -715,16 +849,16 @@ export function RoomView({ roomId }: { roomId: string }) {
       {/* Zone 1 — table, fills all available height */}
       <div className="flex-1 min-h-0 w-full flex flex-col items-center justify-center px-4">
         {seats.top.length > 0 && (
-          <div className="flex items-end gap-4 sm:gap-7 justify-center pb-4 sm:pb-8">{seats.top.map(renderSeat)}</div>
+          <div className="flex items-end gap-2 sm:gap-7 justify-center pb-3 sm:pb-8">{seats.top.map(renderSeat)}</div>
         )}
-        <div className="flex items-center justify-center gap-4 sm:gap-8 w-full">
-          {seats.left.length > 0 && <div className="flex flex-col gap-4 sm:gap-7">{seats.left.map(renderSeat)}</div>}
+        <div className="flex items-center justify-center gap-2 sm:gap-8 w-full">
+          {seats.left.length > 0 && <div className="flex flex-col gap-2 sm:gap-7">{seats.left.map(renderSeat)}</div>}
           <div
             className="relative flex items-center justify-center shrink-0"
             style={{
-              minWidth: 'min(260px, 55vw)', minHeight: 110,
+              minWidth: 'min(180px, 42vw)', minHeight: 80,
               borderRadius: '999px',
-              padding: '24px 64px',
+              padding: 'clamp(12px, 3vw, 24px) clamp(28px, 7vw, 64px)',
               background: 'var(--surface)',
               border: '6px solid #3b1f0a',
               boxShadow: '0 0 0 1px #1a0d05, 0 0 0 3px #5c3214, 0 12px 40px rgba(0,0,0,0.6)',
@@ -733,28 +867,28 @@ export function RoomView({ roomId }: { roomId: string }) {
             {/* Table content */}
             <div className="relative z-10 flex items-center justify-center">
               {room?.phase === 'voting' ? (
-                <div className="text-center space-y-1.5">
-                  <p className="text-zinc-300 text-sm font-medium">Voting in progress</p>
-                  {votedCount > 0 && <p className="text-zinc-400/60 text-xs tabular-nums">{votedCount} of {totalCount} voted</p>}
+                <div className="text-center space-y-1">
+                  <p className="text-zinc-300 text-xs sm:text-sm font-medium whitespace-nowrap">Voting in progress</p>
+                  {votedCount > 0 && <p className="text-zinc-400/60 text-[10px] sm:text-xs tabular-nums">{votedCount}/{totalCount} voted</p>}
                 </div>
               ) : (
-                <div className="text-center space-y-1">
+                <div className="text-center space-y-0.5 sm:space-y-1">
                   {consensus ? (
-                    <><p className="text-emerald-400/80 text-[11px] font-semibold uppercase tracking-widest">Consensus</p>
-                      <p className="text-white font-black text-5xl tabular-nums">{consensus}</p></>
+                    <><p className="text-emerald-400/80 text-[9px] sm:text-[11px] font-semibold uppercase tracking-widest">Consensus</p>
+                      <p className="text-white font-black text-3xl sm:text-5xl tabular-nums">{consensus}</p></>
                   ) : (
-                    <><p className="text-zinc-400/60 text-[11px] font-semibold uppercase tracking-widest">Average</p>
-                      <p className="text-white font-black text-5xl tabular-nums">{calcAverage(revealedVotes)}</p>
-                      <p className="text-zinc-500 text-xs">No consensus</p></>
+                    <><p className="text-zinc-400/60 text-[9px] sm:text-[11px] font-semibold uppercase tracking-widest">Average</p>
+                      <p className="text-white font-black text-3xl sm:text-5xl tabular-nums">{calcAverage(revealedVotes)}</p>
+                      <p className="text-zinc-500 text-[10px] sm:text-xs">No consensus</p></>
                   )}
                 </div>
               )}
             </div>
           </div>
-          {seats.right.length > 0 && <div className="flex flex-col gap-4 sm:gap-7">{seats.right.map(renderSeat)}</div>}
+          {seats.right.length > 0 && <div className="flex flex-col gap-2 sm:gap-7">{seats.right.map(renderSeat)}</div>}
         </div>
         {seats.bottom.length > 0 && (
-          <div className="flex items-start gap-4 sm:gap-7 justify-center pt-4 sm:pt-8">{seats.bottom.map(renderSeat)}</div>
+          <div className="flex items-start gap-2 sm:gap-7 justify-center pt-3 sm:pt-8">{seats.bottom.map(renderSeat)}</div>
         )}
       </div>
 
@@ -762,33 +896,148 @@ export function RoomView({ roomId }: { roomId: string }) {
       <div className="shrink-0 w-full" style={{ borderTop: '1px solid var(--border)' }}>
 
         {/* Story row */}
-        <div className="flex gap-2 px-3 pt-3 pb-2">
-          <Input
-            placeholder="JIRA-123"
-            value={jiraTicket}
-            onChange={(e) => setJiraTicket(e.target.value.toUpperCase())}
-            onFocus={() => { storyFocusedRef.current = true }}
-            onBlur={handleStoryBlur}
-            onKeyDown={(e) => e.key === 'Enter' && storyRef.current?.focus()}
-            className="w-24 sm:w-[7.5rem] h-10 text-xs font-mono uppercase tracking-wider text-blue-300 placeholder:text-zinc-700 focus-visible:ring-violet-500/50"
-            style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.08)' }}
-          />
-          <Input
-            ref={storyRef}
-            placeholder="What are you estimating?"
-            value={story}
-            onChange={(e) => setStory(e.target.value)}
-            onFocus={() => { storyFocusedRef.current = true }}
-            onBlur={handleStoryBlur}
-            onKeyDown={(e) => e.key === 'Enter' && storyRef.current?.blur()}
-            className="flex-1 h-10 text-sm text-zinc-200 placeholder:text-zinc-700 focus-visible:ring-violet-500/50"
-            style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.08)' }}
-          />
+        <div className="flex flex-col gap-3 px-4 pt-5 pb-3 sm:px-3 sm:pt-3 sm:pb-2 sm:gap-2.5">
+          {/* Top sub-row: Jira ticket + story title (full width on mobile) */}
+          <div className="flex gap-2">
+            <div className="relative">
+              <Input
+                placeholder="JIRA-123"
+                value={jiraTicket}
+                onChange={(e) => setJiraTicket(e.target.value.toUpperCase())}
+                onFocus={() => { storyFocusedRef.current = true }}
+                onBlur={handleStoryBlur}
+                onKeyDown={(e) => e.key === 'Enter' && storyRef.current?.focus()}
+                className="w-20 sm:w-[7.5rem] h-9 text-xs font-mono uppercase tracking-wider text-blue-300 placeholder:text-zinc-700 focus-visible:ring-violet-500/50"
+                style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: jiraIssueData ? 'var(--accent)' : 'rgba(255,255,255,0.08)' }}
+              />
+              {jiraFetching && (
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: 'var(--accent)' }} />
+              )}
+              {jiraIssueData && !jiraFetching && (
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-emerald-400" />
+              )}
+            </div>
+            <textarea
+              ref={storyRef as unknown as React.RefObject<HTMLTextAreaElement>}
+              placeholder="What are you estimating?"
+              value={story}
+              onChange={(e) => setStory(e.target.value)}
+              onFocus={() => { storyFocusedRef.current = true }}
+              onBlur={handleStoryBlur}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); (e.target as HTMLTextAreaElement).blur() } }}
+              rows={2}
+              className="flex-1 resize-none text-sm text-zinc-200 placeholder:text-zinc-700 rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-violet-500/50 leading-snug sm:hidden"
+              style={{ backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}
+            />
+            <Input
+              ref={storyRef}
+              placeholder="What are you estimating?"
+              value={story}
+              onChange={(e) => setStory(e.target.value)}
+              onFocus={() => { storyFocusedRef.current = true }}
+              onBlur={handleStoryBlur}
+              onKeyDown={(e) => e.key === 'Enter' && storyRef.current?.blur()}
+              className="hidden sm:flex flex-1 h-9 text-sm text-zinc-200 placeholder:text-zinc-700 focus-visible:ring-violet-500/50"
+              style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.08)' }}
+            />
+          </div>
+          {/* Bottom sub-row: action buttons */}
+          <div className="flex gap-2 items-center">
+          {/* Jira search button */}
+          {jira.status?.connected && (
+            <div className="relative">
+              <button
+                onClick={() => { setJiraSearchOpen((v) => !v); setJiraSearch('') }}
+                className="h-9 w-9 flex items-center justify-center rounded-md border transition-colors shrink-0"
+                style={jiraSearchOpen
+                  ? { color: 'var(--accent)', borderColor: 'var(--accent)', backgroundColor: 'var(--accent-muted)' }
+                  : { color: '#52525b', borderColor: 'rgba(63,63,70,0.5)' }}
+                title="Search Jira issues"
+              >
+                <Search className="w-3.5 h-3.5" />
+              </button>
+              {jiraSearchOpen && (
+                <>
+                  {/* Mobile: centered overlay */}
+                  <div
+                    className="sm:hidden fixed inset-0 z-50 flex items-center justify-center px-4"
+                    style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}
+                    onClick={() => { setJiraSearchOpen(false); setJiraSearch('') }}
+                  >
+                    <div
+                      className="w-full max-w-sm rounded-xl shadow-2xl overflow-hidden"
+                      style={{ backgroundColor: 'var(--surface2)', border: '1px solid var(--border)' }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex items-center gap-2 px-3 py-3 border-b" style={{ borderColor: 'var(--border)' }}>
+                        <Search className="w-4 h-4 text-zinc-500 shrink-0" />
+                        <input
+                          autoFocus
+                          placeholder="Search issues…"
+                          value={jiraSearch}
+                          onChange={(e) => setJiraSearch(e.target.value)}
+                          className="flex-1 bg-transparent text-sm text-zinc-200 placeholder:text-zinc-500 outline-none"
+                        />
+                        <button onClick={() => { setJiraSearchOpen(false); setJiraSearch('') }} className="text-zinc-600 hover:text-zinc-300 transition-colors">
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <div className="max-h-72 overflow-y-auto">
+                        {jiraSearchLoading && <p className="text-xs text-zinc-600 px-4 py-3">Searching…</p>}
+                        {!jiraSearchLoading && jiraSearch && jiraSearchResults.length === 0 && <p className="text-xs text-zinc-600 px-4 py-3">No results</p>}
+                        {!jiraSearchLoading && !jiraSearch && <p className="text-xs text-zinc-600 px-4 py-3">Type to search your Jira issues</p>}
+                        {jiraSearchResults.map((issue) => (
+                          <button key={issue.key} className="w-full text-left px-4 py-3 hover:bg-white/5 transition-colors border-t border-white/[0.03]"
+                            onMouseDown={() => { setJiraTicket(issue.key); if (!story.trim()) setStory(issue.summary); setJiraSearchOpen(false); setJiraSearch('') }}>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-mono shrink-0" style={{ color: 'var(--accent)' }}>{issue.key}</span>
+                              {issue.status && <span className="text-[10px] text-zinc-600 shrink-0">{issue.status}</span>}
+                            </div>
+                            <p className="text-xs text-zinc-300 truncate mt-0.5">{issue.summary}</p>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  {/* Desktop: absolute dropdown */}
+                  <div
+                    className="hidden sm:block absolute top-12 left-0 z-50 rounded-lg shadow-xl overflow-hidden"
+                    style={{ width: 320, backgroundColor: 'var(--surface2)', border: '1px solid var(--border)' }}
+                  >
+                    <div className="p-2 border-b" style={{ borderColor: 'var(--border)' }}>
+                      <input
+                        autoFocus
+                        placeholder="Search issues…"
+                        value={jiraSearch}
+                        onChange={(e) => setJiraSearch(e.target.value)}
+                        className="w-full bg-transparent text-sm text-zinc-200 placeholder:text-zinc-600 outline-none px-1"
+                      />
+                    </div>
+                    <div className="max-h-64 overflow-y-auto">
+                      {jiraSearchLoading && <p className="text-xs text-zinc-600 px-3 py-2">Searching…</p>}
+                      {!jiraSearchLoading && jiraSearch && jiraSearchResults.length === 0 && <p className="text-xs text-zinc-600 px-3 py-2">No results</p>}
+                      {!jiraSearchLoading && !jiraSearch && <p className="text-xs text-zinc-600 px-3 py-2">Type to search your Jira issues</p>}
+                      {jiraSearchResults.map((issue) => (
+                        <button key={issue.key} className="w-full text-left px-3 py-2 hover:bg-white/5 transition-colors"
+                          onMouseDown={() => { setJiraTicket(issue.key); if (!story.trim()) setStory(issue.summary); setJiraSearchOpen(false); setJiraSearch('') }}>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-mono shrink-0" style={{ color: 'var(--accent)' }}>{issue.key}</span>
+                            {issue.status && <span className="text-[10px] text-zinc-600 shrink-0">{issue.status}</span>}
+                          </div>
+                          <p className="text-xs text-zinc-300 truncate mt-0.5">{issue.summary}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
           {/* Toggle details */}
           <button
             onClick={() => setShowStoryDetails((v) => !v)}
             title="Jira URL & description"
-            className="h-10 w-10 flex items-center justify-center rounded-md border transition-colors shrink-0"
+            className="h-9 w-9 flex items-center justify-center rounded-md border transition-colors shrink-0"
             style={showStoryDetails
               ? { color: 'var(--accent)', borderColor: 'var(--accent)', backgroundColor: 'var(--accent-muted)' }
               : { color: '#52525b', borderColor: 'rgba(63,63,70,0.5)' }}
@@ -796,9 +1045,10 @@ export function RoomView({ roomId }: { roomId: string }) {
             <Link2 className="w-3.5 h-3.5" />
           </button>
           {/* Reveal / reset */}
+          <div className="flex-1" />
           {room?.phase === 'voting' ? (
             <Button onClick={handleReveal} disabled={votedCount === 0}
-              className="h-10 px-4 text-white text-sm font-semibold shrink-0 gap-2"
+              className="h-9 px-4 text-white text-sm font-semibold shrink-0 gap-2"
               style={{ backgroundColor: 'var(--accent)' }}>
               <Eye className="w-3.5 h-3.5" />
               Reveal
@@ -806,11 +1056,12 @@ export function RoomView({ roomId }: { roomId: string }) {
             </Button>
           ) : (
             <Button onClick={handleReset} variant="ghost"
-              className="h-10 px-4 text-zinc-400 hover:text-zinc-100 text-sm shrink-0 gap-2">
+              className="h-9 px-4 text-zinc-400 hover:text-zinc-100 text-sm shrink-0 gap-2">
               <RotateCcw className="w-3.5 h-3.5" />
               {room?.topics && room.topics.length > 0 ? 'Next' : 'New Round'}
             </Button>
           )}
+          </div>
         </div>
 
         {/* Collapsible: Jira URL + description */}
@@ -851,7 +1102,7 @@ export function RoomView({ roomId }: { roomId: string }) {
 
         {/* Voting cards */}
         {room?.phase === 'voting' && participantId && !isFacilitator && (
-          <div className="flex flex-wrap justify-center gap-2 sm:gap-2.5 px-3 pb-3">
+          <div className="flex justify-center gap-0.5 sm:gap-2.5 px-2 pb-4 sm:px-3 sm:pb-3">
             {CARD_VALUES.map((v) => (
               <PokerCard key={v} value={v} selected={myVote === v} onClick={() => handleVote(v)} />
             ))}
@@ -934,6 +1185,14 @@ export function RoomView({ roomId }: { roomId: string }) {
       />
 
 
+      {/* Jira issue picker */}
+      {showJiraPicker && (
+        <JiraPicker
+          onAdd={handleJiraPickerAdd}
+          onClose={() => setShowJiraPicker(false)}
+        />
+      )}
+
       {/* Full emoji picker overlay */}
       {fullPickerTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center"
@@ -1014,7 +1273,7 @@ export function RoomView({ roomId }: { roomId: string }) {
         style={{ backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
         <div className="px-5 h-14 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
-            <span className="font-black text-base shrink-0" style={{ color: 'var(--accent)' }}>◈</span>
+            <img src="/logo.svg" alt="Story Points" className="w-5 h-5 shrink-0" style={{ filter: 'brightness(0) invert(1)', opacity: 0.85 }} />
             <span className="font-semibold text-sm text-zinc-100 truncate">{room?.name}</span>
             <span className="hidden sm:block w-px h-3.5 shrink-0" style={{ backgroundColor: 'rgba(255,255,255,0.08)' }} />
             <button onClick={handleCopyCode} className="hidden sm:flex items-center gap-1.5 text-zinc-600 hover:text-zinc-300 transition-colors">
@@ -1040,6 +1299,25 @@ export function RoomView({ roomId }: { roomId: string }) {
                 />
               ))}
             </div>
+            <span className="w-px h-4 shrink-0" style={{ backgroundColor: 'rgba(255,255,255,0.08)' }} />
+            {jira.status?.connected ? (
+              <button
+                onClick={jira.disconnect}
+                title={`Connected to ${jira.status.cloud_name}`}
+                className="flex items-center gap-1 text-xs font-medium transition-colors"
+                style={{ color: 'var(--accent)' }}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                Jira
+              </button>
+            ) : (
+              <button
+                onClick={jira.connect}
+                className="flex items-center gap-1 text-zinc-500 hover:text-zinc-300 text-xs transition-colors"
+              >
+                <Link2 className="w-3 h-3" /> Jira
+              </button>
+            )}
             <span className="w-px h-4 shrink-0" style={{ backgroundColor: 'rgba(255,255,255,0.08)' }} />
             <button onClick={handleLeave} className="flex items-center gap-1.5 text-zinc-600 hover:text-zinc-300 text-xs transition-colors py-2 px-1 -mr-1">
               Leave <LogOut className="w-3.5 h-3.5" />
@@ -1067,7 +1345,7 @@ export function RoomView({ roomId }: { roomId: string }) {
             </div>
           )}
           {/* Bottom nav */}
-          <nav className="shrink-0 flex" style={{ borderTop: '1px solid var(--border)', backgroundColor: 'var(--surface)' }}>
+          <nav className="shrink-0 flex pb-safe" style={{ borderTop: '1px solid var(--border)', backgroundColor: 'var(--surface)' }}>
             {([
               { id: 'table' as const, label: 'Table', Icon: Table2, badge: undefined },
               { id: 'queue' as const, label: 'Queue', Icon: LayoutList, badge: room?.topics.length },
@@ -1077,7 +1355,7 @@ export function RoomView({ roomId }: { roomId: string }) {
                 key={id}
                 onClick={() => setMobileTab(id)}
                 className={cn(
-                  'flex-1 flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-semibold transition-colors',
+                  'flex-1 flex flex-col items-center gap-1 py-3 text-[11px] font-semibold transition-colors',
                   mobileTab === id ? '' : 'text-zinc-600 hover:text-zinc-400',
                 )}
                 style={mobileTab === id ? { color: 'var(--accent)' } : {}}
@@ -1141,16 +1419,23 @@ export function RoomView({ roomId }: { roomId: string }) {
 
 // ── TopicRow ──────────────────────────────────────────────────────────────────
 
-function TopicRow({ topic: t, isModerator, onStart, onRemove }: {
+function TopicRow({ topic: t, isModerator, isCurrent, onStart, onRemove }: {
   topic: Topic
   isModerator: boolean
+  isCurrent: boolean
   onStart: (id: string) => void
   onRemove: (id: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   return (
-    <div style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }} className="last:border-0">
-      {/* Header row — mirrors HistoryEntryRow */}
+    <div
+      style={{
+        borderBottom: '1px solid rgba(255,255,255,0.04)',
+        ...(isCurrent ? { borderLeft: '2px solid var(--accent)', backgroundColor: 'rgba(255,255,255,0.02)' } : {}),
+      }}
+      className="last:border-0"
+    >
+      {/* Header row */}
       <button
         onClick={() => t.description && setExpanded((v) => !v)}
         className={cn(
@@ -1158,10 +1443,13 @@ function TopicRow({ topic: t, isModerator, onStart, onRemove }: {
           !t.description && 'cursor-default',
         )}
       >
+        {isCurrent && (
+          <span className="mt-1 shrink-0 w-1.5 h-1.5 rounded-full" style={{ backgroundColor: 'var(--accent)' }} />
+        )}
         {t.jiraTicket && <span className="mt-0.5 shrink-0"><JiraBadge ticket={t.jiraTicket} link={t.jiraLink} /></span>}
-        <span className="text-sm text-zinc-400 flex-1 min-w-0 break-words leading-snug">{t.title}</span>
+        <span className={cn('text-sm flex-1 min-w-0 break-words leading-snug', isCurrent ? 'text-zinc-200' : 'text-zinc-400')}>{t.title}</span>
         <div className="flex items-center gap-2.5 shrink-0 self-start pt-0.5">
-          {isModerator && (
+          {isModerator && !isCurrent && (
             <>
               <span
                 role="button"
@@ -1181,12 +1469,16 @@ function TopicRow({ topic: t, isModerator, onStart, onRemove }: {
               </span>
             </>
           )}
+          {isModerator && isCurrent && (
+            <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--accent)' }}>
+              Voting
+            </span>
+          )}
           {t.description && (
             <ChevronDown className={cn('w-3 h-3 text-zinc-700 transition-transform', expanded && 'rotate-180')} />
           )}
         </div>
       </button>
-      {/* Expanded description — same layout as HistoryEntryRow */}
       {expanded && t.description && (
         <div className="px-4 pb-3">
           <JiraText text={t.description} />
@@ -1206,7 +1498,7 @@ function SidebarQueuePanel({
   newTopicLink,
   newTopicDescription, setNewTopicDescription,
   handleAddTopic, handleTopicLinkChange, handleStartTopic, handleRemoveTopic,
-  onImportClick,
+  onImportClick, onJiraPickerOpen,
 }: {
   room: Room | null
   isModerator: boolean
@@ -1221,6 +1513,7 @@ function SidebarQueuePanel({
   handleStartTopic: (id: string) => void
   handleRemoveTopic: (id: string) => void
   onImportClick: () => void
+  onJiraPickerOpen?: () => void
 }) {
   return (
     <div>
@@ -1233,6 +1526,17 @@ function SidebarQueuePanel({
               : 'No topics queued'}
           </span>
           <div className="flex items-center gap-2.5">
+            {onJiraPickerOpen && (
+              <button
+                onClick={onJiraPickerOpen}
+                className="flex items-center gap-1 text-[11px] transition-colors"
+                style={{ color: 'var(--accent)' }}
+                title="Browse and add Jira issues"
+              >
+                <Link2 className="w-3 h-3" />
+                Jira
+              </button>
+            )}
             <button
               onClick={onImportClick}
               className="flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors"
@@ -1310,6 +1614,7 @@ function SidebarQueuePanel({
       {room?.topics.map((t) => (
         <TopicRow
           key={t.id} topic={t} isModerator={isModerator}
+          isCurrent={t.id === room.currentTopicId}
           onStart={handleStartTopic} onRemove={handleRemoveTopic}
         />
       ))}

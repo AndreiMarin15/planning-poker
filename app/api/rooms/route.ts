@@ -6,7 +6,7 @@ export async function POST(request: Request) {
   if (!roomName?.trim() || !creatorName?.trim()) {
     return NextResponse.json({ error: 'Room name and your name are required' }, { status: 400 })
   }
-  const { room, participantId } = store.createRoom(
+  const { room, participantId } = await store.createRoom(
     roomName.trim(),
     creatorName.trim(),
     Array.isArray(initialTopics) ? initialTopics : [],

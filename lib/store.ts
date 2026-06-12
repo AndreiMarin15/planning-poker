@@ -1,19 +1,24 @@
-import { EventEmitter } from 'events'
+import { Redis } from '@upstash/redis'
 import type { Room, Participant, Topic, HistoryEntry, EmojiThrow, CardTemplate } from './types'
 
-const rooms = new Map<string, Room>()
-const emitter = new EventEmitter()
-emitter.setMaxListeners(500)
-const emojiEmitter = new EventEmitter()
-emojiEmitter.setMaxListeners(500)
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_URL!,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+})
+
+const ROOM_TTL = 60 * 60 * 24 // 24 hours
+const EMOJI_TTL = 30 // seconds
+
+function roomKey(id: string) { return `room:${id.toUpperCase()}` }
+function emojiKey(id: string) { return `room:${id.toUpperCase()}:emojis` }
 
 function randomId(length = 6): string {
   const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
   return Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
 }
 
-function broadcast(roomId: string, room: Room) {
-  emitter.emit(roomId, room)
+async function saveRoom(room: Room): Promise<void> {
+  await redis.set(roomKey(room.id), room, { ex: ROOM_TTL })
 }
 
 function buildHistoryEntry(room: Room): HistoryEntry {
@@ -36,17 +41,17 @@ function buildHistoryEntry(room: Room): HistoryEntry {
 }
 
 export const store = {
-  getRoom(id: string): Room | undefined {
-    return rooms.get(id.toUpperCase())
+  async getRoom(id: string): Promise<Room | null> {
+    return redis.get<Room>(roomKey(id))
   },
 
-  createRoom(
+  async createRoom(
     roomName: string,
     creatorName: string,
     initialTopics: Array<{ title: string; description?: string; jiraTicket?: string; jiraLink?: string }> = [],
     creatorAvatarStyle?: string,
     cardTemplate: CardTemplate = 'fibonacci',
-  ): { room: Room; participantId: string } {
+  ): Promise<{ room: Room; participantId: string }> {
     const roomId = randomId()
     const participantId = crypto.randomUUID()
     const participant: Participant = { id: participantId, name: creatorName, avatarStyle: creatorAvatarStyle }
@@ -59,18 +64,17 @@ export const store = {
       jiraLink: t.jiraLink || undefined,
     }))
 
-    // Auto-start with the first topic if provided
     let story = ''
     let jiraTicket: string | undefined
     let jiraLink: string | undefined
     let storyDescription: string | undefined
-    let remainingTopics = topics
+    let currentTopicId: string | undefined
     if (topics.length > 0) {
       story = topics[0].title
       jiraTicket = topics[0].jiraTicket
       jiraLink = topics[0].jiraLink
       storyDescription = topics[0].description
-      remainingTopics = topics.slice(1)
+      currentTopicId = topics[0].id
     }
 
     const room: Room = {
@@ -80,7 +84,8 @@ export const store = {
       storyDescription,
       jiraTicket,
       jiraLink,
-      topics: remainingTopics,
+      topics,
+      currentTopicId,
       history: [],
       participants: [participant],
       votes: {},
@@ -89,13 +94,12 @@ export const store = {
       cardTemplate,
       createdAt: Date.now(),
     }
-    rooms.set(roomId, room)
+    await saveRoom(room)
     return { room, participantId }
   },
 
-  joinRoom(roomId: string, name: string, avatarStyle?: string, role?: 'voter' | 'facilitator'): { room: Room; participantId: string } | null {
-    const id = roomId.toUpperCase()
-    const room = rooms.get(id)
+  async joinRoom(roomId: string, name: string, avatarStyle?: string, role?: 'voter' | 'facilitator'): Promise<{ room: Room; participantId: string } | null> {
+    const room = await store.getRoom(roomId)
     if (!room) return null
     const existing = room.participants.find((p) => p.name.toLowerCase() === name.toLowerCase())
     if (existing) {
@@ -106,8 +110,7 @@ export const store = {
             p.id === existing.id ? { ...p, avatarStyle } : p,
           ),
         }
-        rooms.set(id, updated)
-        broadcast(id, updated)
+        await saveRoom(updated)
         return { room: updated, participantId: existing.id }
       }
       return { room, participantId: existing.id }
@@ -115,50 +118,63 @@ export const store = {
     const participantId = crypto.randomUUID()
     const participant: Participant = { id: participantId, name, avatarStyle, role: role ?? 'voter' }
     const updated: Room = { ...room, participants: [...room.participants, participant] }
-    rooms.set(id, updated)
-    broadcast(id, updated)
+    await saveRoom(updated)
     return { room: updated, participantId }
   },
 
-  castVote(roomId: string, participantId: string, value: string): Room | null {
-    const id = roomId.toUpperCase()
-    const room = rooms.get(id)
+  async castVote(roomId: string, participantId: string, value: string): Promise<Room | null> {
+    const room = await store.getRoom(roomId)
     if (!room || room.phase !== 'voting') return null
     const updated: Room = { ...room, votes: { ...room.votes, [participantId]: value } }
-    rooms.set(id, updated)
-    broadcast(id, updated)
+    await saveRoom(updated)
     return updated
   },
 
-  revealVotes(roomId: string): Room | null {
-    const id = roomId.toUpperCase()
-    const room = rooms.get(id)
+  async revealVotes(roomId: string): Promise<Room | null> {
+    const room = await store.getRoom(roomId)
     if (!room) return null
     const entry = buildHistoryEntry(room)
-    const updated: Room = { ...room, phase: 'revealed', history: [...room.history, entry] }
-    rooms.set(id, updated)
-    broadcast(id, updated)
+    // Remove the current topic from the queue only now (it was actually voted on)
+    const topics = room.currentTopicId
+      ? room.topics.filter((t) => t.id !== room.currentTopicId)
+      : room.topics
+    const updated: Room = {
+      ...room,
+      phase: 'revealed',
+      history: [...room.history, entry],
+      topics,
+      currentTopicId: undefined,
+    }
+    await saveRoom(updated)
     return updated
   },
 
-  resetRound(roomId: string, story?: string, jiraTicket?: string, jiraLink?: string): Room | null {
-    const id = roomId.toUpperCase()
-    const room = rooms.get(id)
+  async resetRound(roomId: string): Promise<Room | null> {
+    const room = await store.getRoom(roomId)
     if (!room) return null
 
-    let nextStory = story ?? ''
-    let nextJira = jiraTicket
-    let nextLink = jiraLink
-    let nextDesc: string | undefined
-    let nextTopics = room.topics
+    // After reveal, currentTopicId is already cleared and that topic removed from queue.
+    // If there are remaining topics, advance to the first one (keep it in queue).
+    // If no topics, start a free-form new round (clear story).
+    let nextStory = room.story
+    let nextJira = room.jiraTicket
+    let nextLink = room.jiraLink
+    let nextDesc = room.storyDescription
+    let nextCurrentTopicId = room.currentTopicId
 
-    // Auto-advance to next queued topic if no explicit story provided
-    if (!story && room.topics.length > 0) {
-      nextStory = room.topics[0].title
-      nextJira = room.topics[0].jiraTicket
-      nextLink = room.topics[0].jiraLink
-      nextDesc = room.topics[0].description
-      nextTopics = room.topics.slice(1)
+    if (room.topics.length > 0) {
+      const next = room.topics[0]
+      nextStory = next.title
+      nextJira = next.jiraTicket
+      nextLink = next.jiraLink
+      nextDesc = next.description
+      nextCurrentTopicId = next.id
+    } else {
+      nextStory = ''
+      nextJira = undefined
+      nextLink = undefined
+      nextDesc = undefined
+      nextCurrentTopicId = undefined
     }
 
     const updated: Room = {
@@ -169,16 +185,14 @@ export const store = {
       storyDescription: nextDesc,
       jiraTicket: nextJira,
       jiraLink: nextLink,
-      topics: nextTopics,
+      currentTopicId: nextCurrentTopicId,
     }
-    rooms.set(id, updated)
-    broadcast(id, updated)
+    await saveRoom(updated)
     return updated
   },
 
-  updateStory(roomId: string, story: string, jiraTicket: string, jiraLink: string, description?: string): Room | null {
-    const id = roomId.toUpperCase()
-    const room = rooms.get(id)
+  async updateStory(roomId: string, story: string, jiraTicket: string, jiraLink: string, description?: string): Promise<Room | null> {
+    const room = await store.getRoom(roomId)
     if (!room) return null
     const updated: Room = {
       ...room,
@@ -187,14 +201,12 @@ export const store = {
       jiraTicket: jiraTicket || undefined,
       jiraLink: jiraLink || undefined,
     }
-    rooms.set(id, updated)
-    broadcast(id, updated)
+    await saveRoom(updated)
     return updated
   },
 
-  addTopic(roomId: string, title: string, jiraTicket?: string, jiraLink?: string, description?: string): Room | null {
-    const id = roomId.toUpperCase()
-    const room = rooms.get(id)
+  async addTopic(roomId: string, title: string, jiraTicket?: string, jiraLink?: string, description?: string): Promise<Room | null> {
+    const room = await store.getRoom(roomId)
     if (!room) return null
     const topic: Topic = {
       id: crypto.randomUUID(),
@@ -203,70 +215,74 @@ export const store = {
       jiraTicket: jiraTicket || undefined,
       jiraLink: jiraLink || undefined,
     }
-    const updated: Room = { ...room, topics: [...room.topics, topic] }
-    rooms.set(id, updated)
-    broadcast(id, updated)
+    const isFirst = room.topics.length === 0 && !room.currentTopicId && !room.story.trim()
+    const updated: Room = {
+      ...room,
+      topics: [...room.topics, topic],
+      ...(isFirst ? {
+        story: topic.title,
+        storyDescription: topic.description,
+        jiraTicket: topic.jiraTicket,
+        jiraLink: topic.jiraLink,
+        currentTopicId: topic.id,
+      } : {}),
+    }
+    await saveRoom(updated)
     return updated
   },
 
-  removeTopic(roomId: string, topicId: string): Room | null {
-    const id = roomId.toUpperCase()
-    const room = rooms.get(id)
+  async removeTopic(roomId: string, topicId: string): Promise<Room | null> {
+    const room = await store.getRoom(roomId)
     if (!room) return null
     const updated: Room = { ...room, topics: room.topics.filter((t) => t.id !== topicId) }
-    rooms.set(id, updated)
-    broadcast(id, updated)
+    await saveRoom(updated)
     return updated
   },
 
-  startTopic(roomId: string, topicId: string): Room | null {
-    const id = roomId.toUpperCase()
-    const room = rooms.get(id)
+  async startTopic(roomId: string, topicId: string): Promise<Room | null> {
+    const room = await store.getRoom(roomId)
     if (!room) return null
     const topic = room.topics.find((t) => t.id === topicId)
     if (!topic) return null
+    // Keep topic in queue — it's only removed when votes are actually revealed
     const updated: Room = {
       ...room,
       story: topic.title,
       storyDescription: topic.description,
       jiraTicket: topic.jiraTicket,
       jiraLink: topic.jiraLink,
-      topics: room.topics.filter((t) => t.id !== topicId),
+      currentTopicId: topicId,
       phase: 'voting',
       votes: {},
     }
-    rooms.set(id, updated)
-    broadcast(id, updated)
+    await saveRoom(updated)
     return updated
   },
 
-  removeParticipant(roomId: string, participantId: string): Room | null {
-    const id = roomId.toUpperCase()
-    const room = rooms.get(id)
+  async removeParticipant(roomId: string, participantId: string): Promise<Room | null> {
+    const room = await store.getRoom(roomId)
     if (!room) return null
     const updated: Room = {
       ...room,
       participants: room.participants.filter((p) => p.id !== participantId),
       votes: Object.fromEntries(Object.entries(room.votes).filter(([k]) => k !== participantId)),
     }
-    rooms.set(id, updated)
-    broadcast(id, updated)
+    await saveRoom(updated)
     return updated
   },
 
-  subscribe(roomId: string, callback: (room: Room) => void): () => void {
-    const id = roomId.toUpperCase()
-    emitter.on(id, callback)
-    return () => emitter.off(id, callback)
+  async pushEmoji(roomId: string, event: EmojiThrow): Promise<void> {
+    const key = emojiKey(roomId)
+    const entry = JSON.stringify({ ...event, ts: Date.now() })
+    await redis.lpush(key, entry)
+    await redis.ltrim(key, 0, 19)
+    await redis.expire(key, EMOJI_TTL)
   },
 
-  throwEmoji(roomId: string, event: EmojiThrow): void {
-    emojiEmitter.emit(roomId.toUpperCase(), event)
-  },
-
-  subscribeEmoji(roomId: string, callback: (event: EmojiThrow) => void): () => void {
-    const id = roomId.toUpperCase()
-    emojiEmitter.on(id, callback)
-    return () => emojiEmitter.off(id, callback)
+  async popEmojis(roomId: string, since: number): Promise<(EmojiThrow & { ts: number })[]> {
+    const key = emojiKey(roomId)
+    const raw = await redis.lrange<string>(key, 0, -1)
+    const all = raw.map((s) => (typeof s === 'string' ? JSON.parse(s) : s)) as (EmojiThrow & { ts: number })[]
+    return all.filter((e) => e.ts > since)
   },
 }

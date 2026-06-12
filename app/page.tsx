@@ -269,9 +269,11 @@ export default function Home() {
       `}</style>
 
       <div className="mb-10 text-center space-y-4">
-        <div className="text-4xl font-black" style={{ color: 'var(--accent)' }}>◈</div>
+        <div className="flex justify-center">
+          <img src="/logo.svg" alt="Story Points" className="w-14 h-14" style={{ filter: 'brightness(0) invert(1)', opacity: 0.9 }} />
+        </div>
         <div className="space-y-1.5">
-          <h1 className="text-2xl font-bold text-zinc-100 tracking-tight">Planning Poker</h1>
+          <h1 className="text-2xl font-bold text-zinc-100 tracking-tight">Story Points</h1>
           <p className="text-zinc-600 text-sm">Estimate together. Real-time, no account needed.</p>
         </div>
       </div>
