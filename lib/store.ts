@@ -51,10 +51,11 @@ export const store = {
     initialTopics: Array<{ title: string; description?: string; jiraTicket?: string; jiraLink?: string }> = [],
     creatorAvatarStyle?: string,
     cardTemplate: CardTemplate = 'fibonacci',
+    creatorRole: 'voter' | 'facilitator' = 'voter',
   ): Promise<{ room: Room; participantId: string }> {
     const roomId = randomId()
     const participantId = crypto.randomUUID()
-    const participant: Participant = { id: participantId, name: creatorName, avatarStyle: creatorAvatarStyle }
+    const participant: Participant = { id: participantId, name: creatorName, avatarStyle: creatorAvatarStyle, role: creatorRole === 'facilitator' ? 'facilitator' : undefined }
 
     const topics: Topic[] = initialTopics.map((t) => ({
       id: crypto.randomUUID(),

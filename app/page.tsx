@@ -107,6 +107,7 @@ export default function Home() {
   const [newLink, setNewLink] = useState('')
   const [newTitle, setNewTitle] = useState('')
   const [cardTemplate, setCardTemplate] = useState<CardTemplate>('fibonacci')
+  const [creatorRole, setCreatorRole] = useState<'voter' | 'facilitator'>('voter')
   const importRef = useRef<HTMLInputElement>(null)
 
   // Join state
@@ -200,6 +201,7 @@ export default function Home() {
           creatorName: creatorName.trim(),
           creatorAvatarStyle: creatorAvatar,
           cardTemplate,
+          creatorRole,
           initialTopics: topics.map((t) => ({
             title: t.title,
             description: t.description || undefined,
@@ -342,6 +344,32 @@ export default function Home() {
                   Avatar <span className="text-zinc-700 normal-case font-normal tracking-normal">(opt.)</span>
                 </Label>
                 <AvatarPicker name={creatorName} value={creatorAvatar} onChange={setCreatorAvatar} />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-[11px] font-semibold text-zinc-500 uppercase tracking-widest">Your role</Label>
+                <div className="flex gap-2">
+                  {(['voter', 'facilitator'] as const).map((r) => (
+                    <button
+                      key={r}
+                      onClick={() => setCreatorRole(r)}
+                      className={cn(
+                        'flex-1 flex flex-col gap-0.5 px-3 py-2 rounded-xl border text-left transition-all',
+                        creatorRole === r ? 'border-zinc-700/50' : 'border-zinc-700/50 bg-zinc-800/30 hover:border-zinc-600/60',
+                      )}
+                      style={creatorRole === r
+                        ? { borderLeftColor: 'var(--accent)', borderLeftWidth: 3, backgroundColor: 'rgba(255,255,255,0.05)' }
+                        : {}}
+                    >
+                      <span className="text-xs font-semibold capitalize" style={{ color: creatorRole === r ? '#ffffff' : '#d4d4d8' }}>
+                        {r === 'voter' ? 'Voter' : 'Facilitator'}
+                      </span>
+                      <span className="text-[10px]" style={{ color: creatorRole === r ? '#a1a1aa' : '#71717a' }}>
+                        {r === 'voter' ? 'Participates in voting' : 'Manages session, no vote'}
+                      </span>
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 

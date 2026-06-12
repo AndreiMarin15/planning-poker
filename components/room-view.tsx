@@ -420,6 +420,7 @@ export function RoomView({ roomId }: { roomId: string }) {
   const isModerator = room && participantId ? room.moderatorId === participantId : false
   const myParticipant = room && participantId ? room.participants.find((p) => p.id === participantId) : null
   const isFacilitator = myParticipant?.role === 'facilitator'
+  const canManage = isModerator || isFacilitator
 
   // ── Emoji animation (shared by polling handler) ───────────────────────────────
 
@@ -820,7 +821,7 @@ export function RoomView({ roomId }: { roomId: string }) {
   // ── Shared queue/history panel props ──────────────────────────────────────────
 
   const queueProps = {
-    room, isModerator,
+    room, isModerator: canManage,
     showAddTopic, setShowAddTopic,
     newTopicJira, setNewTopicJira,
     newTopicTitle, setNewTopicTitle,
@@ -1084,14 +1085,14 @@ export function RoomView({ roomId }: { roomId: string }) {
                 </a>
               )}
             </div>
-            {(storyDescription || isModerator) && (
+            {(storyDescription || canManage) && (
               <textarea
                 placeholder="Description (optional)"
                 value={storyDescription}
                 onChange={(e) => setStoryDescription(e.target.value)}
                 onFocus={() => { storyFocusedRef.current = true }}
                 onBlur={handleStoryBlur}
-                readOnly={!isModerator}
+                readOnly={!canManage}
                 rows={2}
                 className="w-full resize-none text-xs text-zinc-400 placeholder:text-zinc-700 rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-violet-500/50 leading-relaxed overflow-y-auto"
                 style={{ maxHeight: '4.5rem', backgroundColor: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
