@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,7 +13,8 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog'
-import { Plus, X, Link2, ExternalLink, Upload, Footprints, PersonStanding } from 'lucide-react'
+import { Plus, X, Link2, ExternalLink, Upload } from 'lucide-react'
+import Lottie from 'lottie-react'
 import { extractJiraTicket, isJiraUrl } from '@/lib/jira'
 import { AvatarPicker, DEFAULT_AVATAR } from '@/components/avatar'
 import { cn } from '@/lib/utils'
@@ -26,6 +27,68 @@ function setSession(roomId: string, pid: string) {
   const exp = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toUTCString()
   document.cookie = `pp_${roomId}_pid=${encodeURIComponent(pid)}; expires=${exp}; path=/; SameSite=Strict`
   localStorage.setItem(`pp_${roomId}_pid`, pid)
+}
+
+function hexToRgb(hex: string) {
+  const normalized = hex.replace('#', '')
+  const bigint = parseInt(normalized.length === 3
+    ? normalized.split('').map((c) => c + c).join('')
+    : normalized, 16)
+  return {
+    r: (bigint >> 16) & 255,
+    g: (bigint >> 8) & 255,
+    b: bigint & 255,
+  }
+}
+
+function rgbToHsl(r: number, g: number, b: number) {
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  const l = (max + min) / 2
+  if (max === min) {
+    return { h: 0, s: 0, l }
+  }
+  const d = max - min
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+  let h = 0
+  if (max === r) {
+    h = (g - b) / d + (g < b ? 6 : 0)
+  } else if (max === g) {
+    h = (b - r) / d + 2
+  } else {
+    h = (r - g) / d + 4
+  }
+  return { h: (h * 60) % 360, s, l }
+}
+
+function shouldRecolorColor(color: number[]) {
+  const [r, g, b] = color
+  const { h, s, l } = rgbToHsl(r, g, b)
+  return s > 0.4 && l > 0.2 && l < 0.95 && h >= 15 && h <= 65
+}
+
+function recolorLottie(animation: any, accentHex: string) {
+  const { r, g, b } = hexToRgb(accentHex)
+  const target = [r / 255, g / 255, b / 255]
+
+  function walk(node: any) {
+    if (!node || typeof node !== 'object') return
+    for (const key of Object.keys(node)) {
+      const value = node[key]
+      if (key === 'c' && value && typeof value === 'object' && Array.isArray(value.k) && value.k.length >= 3) {
+        const color = value.k.slice(0, 3)
+        if (shouldRecolorColor(color)) {
+          value.k = target
+        }
+      } else {
+        walk(value)
+      }
+    }
+  }
+
+  const clone = JSON.parse(JSON.stringify(animation))
+  walk(clone)
+  return clone
 }
 
 export default function Home() {
@@ -52,6 +115,44 @@ export default function Home() {
   const [joinAvatar, setJoinAvatar] = useState(DEFAULT_AVATAR)
   const [joining, setJoining] = useState(false)
   const [joinError, setJoinError] = useState('')
+  const [mascotStage, setMascotStage] = useState<'initial' | 'walking'>('initial')
+  const [mascotAnimation, setMascotAnimation] = useState<Record<string, any> | null>(null)
+  const [mascotInitialData, setMascotInitialData] = useState<Record<string, any> | null>(null)
+  const [mascotWalkingData, setMascotWalkingData] = useState<Record<string, any> | null>(null)
+
+  useEffect(() => {
+    let active = true
+
+    Promise.all([
+      fetch('/8d30521c-584a-40ba-b474-fc782887184a.json').then((res) => (res.ok ? res.json() : null)),
+      fetch('/623c0a7b-addf-4999-8f10-079d22da4b76.json').then((res) => (res.ok ? res.json() : null)),
+    ])
+      .then(([initialData, walkingData]) => {
+        if (!active) return
+        if (initialData) setMascotInitialData(initialData)
+        if (walkingData) setMascotWalkingData(walkingData)
+      })
+      .catch(() => {})
+
+    return () => {
+      active = false
+    }
+  }, [])
+
+  useEffect(() => {
+    const data = mascotStage === 'walking' ? mascotWalkingData : mascotInitialData
+    if (!data) return
+    setMascotAnimation(recolorLottie(data, theme.accent))
+  }, [theme.accent, mascotStage, mascotInitialData, mascotWalkingData])
+
+  useEffect(() => {
+    const timeout = mascotStage === 'walking' ? 16000 : 5000
+    const timer = window.setTimeout(() => {
+      setMascotStage((prev) => prev === 'walking' ? 'initial' : 'walking')
+    }, timeout)
+
+    return () => window.clearTimeout(timer)
+  }, [mascotStage])
 
   function handleLinkChange(value: string) {
     setNewLink(value)
@@ -155,21 +256,15 @@ export default function Home() {
         [data-pp-root] [class*="ring-violet"]:focus-visible,
         [data-pp-root] [class*="ring-violet"]:focus { --tw-ring-color: var(--accent-ring) !important; }
 
+        @keyframes mascot-enter {
+          0% { opacity: 0; transform: translateX(-16px) translateY(12px); }
+          100% { opacity: 1; transform: translateX(0) translateY(0); }
+        }
+
         @keyframes mascot-walk {
-          0%, 100% { transform: translateX(0); }
-          50% { transform: translateX(4px); }
-        }
-
-        @keyframes mascot-tired {
-          0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(-2px); }
-        }
-
-        @keyframes mascot-pass {
-          0% { transform: translateX(-120%); opacity: 0; }
-          10% { transform: translateX(-100%); opacity: 1; }
-          90% { transform: translateX(100%); opacity: 1; }
-          100% { transform: translateX(120%); opacity: 0; }
+          0% { opacity: 1; transform: translateX(0); }
+          90% { opacity: 1; transform: translateX(calc(100vw - 9rem)); }
+          100% { opacity: 0; transform: translateX(calc(100vw - 6rem)); }
         }
       `}</style>
 
@@ -202,7 +297,11 @@ export default function Home() {
         <Button onClick={() => setShowCreate(true)} className="flex-1 text-white h-10 text-sm font-semibold" style={{ backgroundColor: 'var(--accent)' }}>
           Create Room
         </Button>
-        <Button onClick={() => setShowJoin(true)} variant="outline" className="flex-1 border-zinc-800 text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100 h-10 text-sm">
+        <Button
+          onClick={() => setShowJoin(true)}
+          variant="outline"
+          className="flex-1 border-zinc-800 text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100 h-10 text-sm"
+        >
           Join Room
         </Button>
       </div>
@@ -393,19 +492,17 @@ export default function Home() {
 
       <p className="mt-14 text-zinc-800 text-xs">Rooms reset on server restart.</p>
 
-      <div className="fixed inset-x-0 bottom-4 z-20 pointer-events-none overflow-hidden px-6">
-        <div className="relative h-20 w-full">
-          <div
-            className="absolute top-0 inline-flex items-center gap-3 rounded-full border border-zinc-800 bg-zinc-950/95 px-4 py-3 text-zinc-100 shadow-2xl shadow-black/50 backdrop-blur-sm"
-            style={{ animation: 'mascot-pass 14s linear infinite' }}
-          >
-            <Footprints className="w-6 h-6 text-zinc-300" />
-            <PersonStanding className="w-6 h-6 text-zinc-100" />
-            <div className="space-y-0.5 text-left">
-              <p className="text-sm font-semibold text-zinc-100">Sleepy mascot passing by</p>
-              <p className="text-xs text-zinc-500">Wait lang natutulog pa</p>
-            </div>
-          </div>
+      <div className="fixed left-4 bottom-4 z-20 pointer-events-none">
+        <div className="pointer-events-auto w-28 h-28 rounded-3xl bg-zinc-950/95 shadow-2xl shadow-black/30 backdrop-blur-sm p-2"
+          style={{
+            animation: mascotStage === 'walking'
+              ? 'mascot-enter 0.8s ease-out forwards, mascot-walk 16s linear 0.8s infinite'
+              : 'mascot-enter 0.8s ease-out forwards',
+            opacity: 0,
+          }}>
+          {mascotAnimation ? (
+            <Lottie animationData={mascotAnimation} loop autoplay style={{ width: '100%', height: '100%' }} />
+          ) : null}
         </div>
       </div>
     </div>
