@@ -13,7 +13,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog'
-import { Plus, X, Link2, ExternalLink, Upload } from 'lucide-react'
+import { Plus, X, Link2, ExternalLink, Upload, Unlink } from 'lucide-react'
 import Lottie from 'lottie-react'
 import { extractJiraTicket, isJiraUrl } from '@/lib/jira'
 import { AvatarPicker, DEFAULT_AVATAR } from '@/components/avatar'
@@ -22,6 +22,8 @@ import type { CardTemplate } from '@/lib/types'
 import { CARD_TEMPLATES } from '@/lib/types'
 import { useTheme, THEMES, type ThemeId } from '@/lib/theme'
 import { parseImportFile, type DraftTopic } from '@/lib/import'
+import { useJira, type JiraSprintIssue } from '@/lib/use-jira'
+import { JiraPicker } from '@/components/jira-picker'
 
 function setSession(roomId: string, pid: string) {
   const exp = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toUTCString()
@@ -108,7 +110,18 @@ export default function Home() {
   const [newTitle, setNewTitle] = useState('')
   const [cardTemplate, setCardTemplate] = useState<CardTemplate>('fibonacci')
   const [creatorRole, setCreatorRole] = useState<'voter' | 'facilitator'>('voter')
+  const [showJiraPicker, setShowJiraPicker] = useState(false)
   const importRef = useRef<HTMLInputElement>(null)
+
+  const jira = useJira('/')
+
+  // Re-open create dialog after Jira OAuth redirect
+  useEffect(() => {
+    if (sessionStorage.getItem('pp_reopen_create') === '1') {
+      sessionStorage.removeItem('pp_reopen_create')
+      setShowCreate(true)
+    }
+  }, [])
 
   // Join state
   const [joinCode, setJoinCode] = useState('')
@@ -241,8 +254,28 @@ export default function Home() {
   function handleCreateClose(open: boolean) {
     if (!open) {
       setShowCreate(false)
+      setShowJiraPicker(false)
       setTopics([]); setNewJira(''); setNewLink(''); setNewTitle('')
     }
+  }
+
+  function handleJiraConnect() {
+    sessionStorage.setItem('pp_reopen_create', '1')
+    jira.connect()
+  }
+
+  async function handleJiraPickerAdd(issues: JiraSprintIssue[]) {
+    setTopics((prev) => [
+      ...prev,
+      ...issues.map((i) => ({
+        id: crypto.randomUUID(),
+        jiraTicket: i.key,
+        jiraLink: i.url,
+        title: i.summary,
+        description: '',
+      })),
+    ])
+    setShowJiraPicker(false)
   }
 
   const inputStyle = { backgroundColor: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.1)' }
@@ -412,6 +445,33 @@ export default function Home() {
                 <Label className="text-[11px] font-semibold text-zinc-500 uppercase tracking-widest">Backlog</Label>
                 <div className="flex items-center gap-3">
                   <input ref={importRef} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={handleImportFile} />
+                  {jira.status?.connected ? (
+                    <>
+                      <button
+                        onClick={() => setShowJiraPicker(true)}
+                        className="flex items-center gap-1 text-[10px] transition-colors"
+                        style={{ color: 'var(--accent)' }}
+                      >
+                        <Link2 className="w-3 h-3" />
+                        Browse Jira
+                      </button>
+                      <button
+                        onClick={() => jira.disconnect()}
+                        className="flex items-center gap-1 text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors"
+                        title="Disconnect Jira"
+                      >
+                        <Unlink className="w-3 h-3" />
+                      </button>
+                    </>
+                  ) : jira.status !== null ? (
+                    <button
+                      onClick={handleJiraConnect}
+                      className="flex items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+                    >
+                      <Link2 className="w-3 h-3" />
+                      Connect Jira
+                    </button>
+                  ) : null}
                   <button
                     onClick={() => importRef.current?.click()}
                     className="flex items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
@@ -481,6 +541,10 @@ export default function Home() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {showJiraPicker && (
+        <JiraPicker onAdd={handleJiraPickerAdd} onClose={() => setShowJiraPicker(false)} />
+      )}
 
       {/* ── Join dialog ─────────────────────────────────────────── */}
       <Dialog open={showJoin} onOpenChange={setShowJoin}>
