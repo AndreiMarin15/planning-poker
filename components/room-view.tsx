@@ -847,16 +847,16 @@ export function RoomView({ roomId }: { roomId: string }) {
   // Two-zone layout: flex-1 table area (centered) + shrink-0 controls bar
 
   const n = room?.participants.length ?? 0
-  const seatGap    = n >= 9 ? 2  : n >= 7 ? 4  : 7   // Tailwind gap scale (desktop)
-  const seatGapMob = n >= 9 ? 1  : n >= 7 ? 1  : 2   // mobile
-  const tableGap    = n >= 9 ? 2  : n >= 7 ? 4  : 8
-  const tableGapMob = n >= 9 ? 1  : n >= 7 ? 1  : 2
-  const rowPb = n >= 9 ? 2 : n >= 7 ? 4 : 8
-  const rowPt = n >= 9 ? 2 : n >= 7 ? 4 : 8
+  const seatGap    = n >= 9 ? 4  : n >= 7 ? 5  : 7   // Tailwind gap scale (desktop)
+  const seatGapMob = n >= 9 ? 1  : n >= 7 ? 2  : 2   // mobile
+  const tableGap    = n >= 9 ? 4  : n >= 7 ? 6  : 8
+  const tableGapMob = n >= 9 ? 2  : n >= 7 ? 2  : 2
+  const rowPb = n >= 9 ? 4 : n >= 7 ? 5 : 8
+  const rowPt = n >= 9 ? 4 : n >= 7 ? 5 : 8
   const tablePad = n >= 9
-    ? 'clamp(8px, 2vw, 16px) clamp(16px, 4vw, 36px)'
+    ? 'clamp(10px, 2.5vw, 20px) clamp(20px, 5vw, 48px)'
     : n >= 7
-      ? 'clamp(10px, 2.5vw, 20px) clamp(20px, 5vw, 48px)'
+      ? 'clamp(11px, 2.8vw, 22px) clamp(24px, 6vw, 56px)'
       : 'clamp(12px, 3vw, 24px) clamp(28px, 7vw, 64px)'
 
   const tablePaneContent = (
