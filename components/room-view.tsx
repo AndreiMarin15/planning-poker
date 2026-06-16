@@ -74,10 +74,15 @@ function distributeSeats(ps: Participant[]) {
   if (n <= 6) {
     return { top: ps.slice(0, 3), left: [], right: [], bottom: ps.slice(3) }
   }
-  const top = ps.slice(0, 3)
-  const bottom = ps.slice(n - 3)
-  const mid = ps.slice(3, n - 3)
-  const lc = Math.ceil(mid.length / 2)
+  // For 7+ people: cap sides at 2 each so extras go to top/bottom (rounder oval shape)
+  const maxPerSide = 2
+  const sideCount = Math.min(n - 6, maxPerSide * 2)
+  const tbCount = n - sideCount
+  const topCount = Math.ceil(tbCount / 2)
+  const top = ps.slice(0, topCount)
+  const mid = ps.slice(topCount, topCount + sideCount)
+  const bottom = ps.slice(topCount + sideCount)
+  const lc = Math.floor(sideCount / 2)  // split evenly; odd extra goes to right
   return { top, left: mid.slice(0, lc), right: mid.slice(lc), bottom }
 }
 
@@ -847,14 +852,14 @@ export function RoomView({ roomId }: { roomId: string }) {
   // Two-zone layout: flex-1 table area (centered) + shrink-0 controls bar
 
   const n = room?.participants.length ?? 0
-  const seatGap    = n >= 9 ? 4  : n >= 7 ? 5  : 7   // Tailwind gap scale (desktop)
-  const seatGapMob = n >= 9 ? 1  : n >= 7 ? 2  : 2   // mobile
-  const tableGap    = n >= 9 ? 4  : n >= 7 ? 6  : 8
+  const seatGap    = n >= 9 ? 6  : n >= 7 ? 6  : 7   // Tailwind gap scale (desktop)
+  const seatGapMob = n >= 9 ? 2  : n >= 7 ? 2  : 2   // mobile
+  const tableGap    = n >= 9 ? 5  : n >= 7 ? 6  : 8
   const tableGapMob = n >= 9 ? 2  : n >= 7 ? 2  : 2
-  const rowPb = n >= 9 ? 4 : n >= 7 ? 5 : 8
-  const rowPt = n >= 9 ? 4 : n >= 7 ? 5 : 8
+  const rowPb = n >= 9 ? 3 : n >= 7 ? 4 : 8
+  const rowPt = n >= 9 ? 3 : n >= 7 ? 4 : 8
   const tablePad = n >= 9
-    ? 'clamp(10px, 2.5vw, 20px) clamp(20px, 5vw, 48px)'
+    ? 'clamp(10px, 2.5vw, 20px) clamp(22px, 5.5vw, 52px)'
     : n >= 7
       ? 'clamp(11px, 2.8vw, 22px) clamp(24px, 6vw, 56px)'
       : 'clamp(12px, 3vw, 24px) clamp(28px, 7vw, 64px)'
