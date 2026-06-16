@@ -111,6 +111,7 @@ export default function Home() {
   const [cardTemplate, setCardTemplate] = useState<CardTemplate>('fibonacci')
   const [creatorRole, setCreatorRole] = useState<'voter' | 'facilitator'>('voter')
   const [showJiraPicker, setShowJiraPicker] = useState(false)
+  const [jiraBaseUrl, setJiraBaseUrl] = useState('')
   const importRef = useRef<HTMLInputElement>(null)
 
   const jira = useJira('/')
@@ -202,6 +203,14 @@ export default function Home() {
     }
   }
 
+  function resolveJiraLink(ticket: string, existingLink?: string): string | undefined {
+    if (existingLink) return existingLink
+    const base = jiraBaseUrl.trim().replace(/\/+$/, '')
+    if (!base || !ticket) return undefined
+    const host = base.replace(/^https?:\/\//, '')
+    return `https://${host}/browse/${ticket}`
+  }
+
   async function handleCreate() {
     if (!creatorName.trim()) return
     setCreating(true)
@@ -219,7 +228,7 @@ export default function Home() {
             title: t.title,
             description: t.description || undefined,
             jiraTicket: t.jiraTicket || undefined,
-            jiraLink: t.jiraLink || undefined,
+            jiraLink: t.jiraTicket ? resolveJiraLink(t.jiraTicket, t.jiraLink || undefined) : undefined,
           })),
         }),
       })
@@ -482,15 +491,30 @@ export default function Home() {
                 </div>
               </div>
 
+              {topics.some((t) => t.jiraTicket && !t.jiraLink) && (
+                <div className="flex items-center gap-2">
+                  <Link2 className="w-3.5 h-3.5 text-zinc-700 shrink-0" />
+                  <Input
+                    placeholder="yourorg.atlassian.net — auto-links ticket keys"
+                    value={jiraBaseUrl}
+                    onChange={(e) => setJiraBaseUrl(e.target.value)}
+                    className={`flex-1 h-8 text-xs ${inputCls}`}
+                    style={inputStyle}
+                  />
+                </div>
+              )}
+
               {topics.length > 0 && (
                 <div className="space-y-1.5">
-                  {topics.map((t, i) => (
+                  {topics.map((t, i) => {
+                    const resolvedLink = t.jiraTicket ? resolveJiraLink(t.jiraTicket, t.jiraLink || undefined) : undefined
+                    return (
                     <div key={t.id} className="flex items-start gap-2.5 px-3 py-2.5 rounded-lg text-sm"
                       style={{ backgroundColor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
                       <span className="text-zinc-600 text-[11px] font-mono w-4 shrink-0 pt-0.5">{i + 1}</span>
                       {t.jiraTicket && (
-                        t.jiraLink
-                          ? <a href={t.jiraLink} target="_blank" rel="noopener noreferrer"
+                        resolvedLink
+                          ? <a href={resolvedLink} target="_blank" rel="noopener noreferrer"
                               className="text-blue-400 font-mono text-[11px] font-bold shrink-0 hover:underline flex items-center gap-0.5 pt-0.5">
                               {t.jiraTicket}<ExternalLink className="w-2.5 h-2.5 opacity-60" />
                             </a>
@@ -501,7 +525,7 @@ export default function Home() {
                         <X className="w-3.5 h-3.5" />
                       </button>
                     </div>
-                  ))}
+                  )})}
                 </div>
               )}
 
