@@ -102,50 +102,51 @@ function TableCard({
   return (
     <div
       data-pid={pid}
-      className="flex flex-col items-center gap-2"
+      className="relative flex flex-col items-center gap-1 sm:gap-2"
       onMouseEnter={() => { if (canThrow) setHovered(true) }}
       onMouseLeave={() => setHovered(false)}
     >
-      <div
-        className="flex items-center gap-px px-2 py-1.5 rounded-full z-30 transition-opacity duration-150"
-        style={{
-          backgroundColor: 'var(--surface2)',
-          border: '1px solid rgba(255,255,255,0.11)',
-          opacity: hovered && canThrow ? 1 : 0,
-          pointerEvents: hovered && canThrow ? 'auto' : 'none',
-          visibility: canThrow ? 'visible' : 'hidden',
-        }}
-      >
-        {THROW_EMOJIS.slice(0, 8).map((e) => (
-          <button key={e} onClick={() => onThrow?.(e)}
-            className="text-[1rem] leading-none px-0.5 hover:scale-125 active:scale-90 transition-transform cursor-pointer">
-            {e}
-          </button>
-        ))}
-        {lastEmoji && !THROW_EMOJIS.slice(0, 8).includes(lastEmoji) && (
-          <>
-            <span className="w-px h-3.5 bg-white/10 mx-1" />
-            <button onClick={() => onThrow?.(lastEmoji)}
+      {canThrow && (
+        <div
+          className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 flex items-center gap-px px-2 py-1.5 rounded-full z-30 transition-opacity duration-150 whitespace-nowrap"
+          style={{
+            backgroundColor: 'var(--surface2)',
+            border: '1px solid rgba(255,255,255,0.11)',
+            opacity: hovered ? 1 : 0,
+            pointerEvents: hovered ? 'auto' : 'none',
+          }}
+        >
+          {THROW_EMOJIS.slice(0, 8).map((e) => (
+            <button key={e} onClick={() => onThrow?.(e)}
               className="text-[1rem] leading-none px-0.5 hover:scale-125 active:scale-90 transition-transform cursor-pointer">
-              {lastEmoji}
+              {e}
             </button>
-          </>
-        )}
-        <span className="w-px h-3.5 bg-white/10 mx-1" />
-        <button onClick={() => onThrow?.('__picker__')}
-          className="text-zinc-500 hover:text-zinc-200 text-[11px] font-semibold px-1 transition-colors">
-          ···
-        </button>
-      </div>
+          ))}
+          {lastEmoji && !THROW_EMOJIS.slice(0, 8).includes(lastEmoji) && (
+            <>
+              <span className="w-px h-3.5 bg-white/10 mx-1" />
+              <button onClick={() => onThrow?.(lastEmoji)}
+                className="text-[1rem] leading-none px-0.5 hover:scale-125 active:scale-90 transition-transform cursor-pointer">
+                {lastEmoji}
+              </button>
+            </>
+          )}
+          <span className="w-px h-3.5 bg-white/10 mx-1" />
+          <button onClick={() => onThrow?.('__picker__')}
+            className="text-zinc-500 hover:text-zinc-200 text-[11px] font-semibold px-1 transition-colors">
+            ···
+          </button>
+        </div>
+      )}
       {isFacilitator ? (
-        <div className="w-8 h-10 sm:w-11 sm:h-[3.75rem] rounded-lg sm:rounded-xl border border-zinc-700/30 flex items-center justify-center"
+        <div className="w-7 h-9 sm:w-11 sm:h-[3.75rem] rounded-lg sm:rounded-xl border border-zinc-700/30 flex items-center justify-center"
           style={{ backgroundColor: 'rgba(82,82,91,0.15)' }}>
-          <span className="text-sm sm:text-lg leading-none">👀</span>
+          <span className="text-xs sm:text-lg leading-none">👀</span>
         </div>
       ) : (
         <div
           className={cn(
-            'w-8 h-10 sm:w-11 sm:h-[3.75rem] rounded-lg sm:rounded-xl border relative overflow-hidden transition-all duration-300',
+            'w-7 h-9 sm:w-11 sm:h-[3.75rem] rounded-lg sm:rounded-xl border relative overflow-hidden transition-all duration-300',
             !voted && !revealed && 'border-zinc-600/30',
             voted && !revealed && 'border-blue-400/20',
             revealed && 'border-slate-500/30',
@@ -154,14 +155,14 @@ function TableCard({
         >
           {revealed && (
             <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-white font-bold text-base sm:text-xl tabular-nums leading-none">{value ?? '—'}</span>
+              <span className="text-white font-bold text-sm sm:text-xl tabular-nums leading-none">{value ?? '—'}</span>
             </div>
           )}
         </div>
       )}
-      <div className="flex flex-col items-center gap-0.5 sm:gap-1">
-        <AvatarImg name={name} style={avatarStyle} size={22} isMe={isMe} />
-        <span className="text-[10px] sm:text-[12px] font-semibold leading-none max-w-[4rem] truncate text-center" style={isMe ? { color: 'var(--accent)' } : { color: '#d4d4d8' }}>
+      <div className="flex flex-col items-center gap-0.5">
+        <AvatarImg name={name} style={avatarStyle} size={18} isMe={isMe} />
+        <span className="text-[9px] sm:text-[11px] font-semibold leading-none max-w-[3.5rem] truncate text-center" style={isMe ? { color: 'var(--accent)' } : { color: '#d4d4d8' }}>
           {name}
         </span>
       </div>
@@ -845,21 +846,36 @@ export function RoomView({ roomId }: { roomId: string }) {
   // ── Table pane (shared between mobile and desktop main) ───────────────────────
   // Two-zone layout: flex-1 table area (centered) + shrink-0 controls bar
 
+  const n = room?.participants.length ?? 0
+  const seatGap    = n >= 9 ? 2  : n >= 7 ? 4  : 7   // Tailwind gap scale (desktop)
+  const seatGapMob = n >= 9 ? 1  : n >= 7 ? 1  : 2   // mobile
+  const tableGap    = n >= 9 ? 2  : n >= 7 ? 4  : 8
+  const tableGapMob = n >= 9 ? 1  : n >= 7 ? 1  : 2
+  const rowPb = n >= 9 ? 2 : n >= 7 ? 4 : 8
+  const rowPt = n >= 9 ? 2 : n >= 7 ? 4 : 8
+  const tablePad = n >= 9
+    ? 'clamp(8px, 2vw, 16px) clamp(16px, 4vw, 36px)'
+    : n >= 7
+      ? 'clamp(10px, 2.5vw, 20px) clamp(20px, 5vw, 48px)'
+      : 'clamp(12px, 3vw, 24px) clamp(28px, 7vw, 64px)'
+
   const tablePaneContent = (
     <>
       {/* Zone 1 — table, fills all available height */}
-      <div className="flex-1 min-h-0 w-full flex flex-col items-center justify-center px-4">
+      <div className="flex-1 min-h-0 w-full flex flex-col items-center justify-center px-2 sm:px-4">
         {seats.top.length > 0 && (
-          <div className="flex items-end gap-2 sm:gap-7 justify-center pb-3 sm:pb-8">{seats.top.map(renderSeat)}</div>
+          <div
+            className={`flex items-end justify-center gap-${seatGapMob} sm:gap-${seatGap} pb-${seatGapMob} sm:pb-${rowPb}`}
+          >{seats.top.map(renderSeat)}</div>
         )}
-        <div className="flex items-center justify-center gap-2 sm:gap-8 w-full">
-          {seats.left.length > 0 && <div className="flex flex-col gap-2 sm:gap-7">{seats.left.map(renderSeat)}</div>}
+        <div className={`flex items-center justify-center gap-${tableGapMob} sm:gap-${tableGap} w-full`}>
+          {seats.left.length > 0 && <div className={`flex flex-col gap-${seatGapMob} sm:gap-${seatGap}`}>{seats.left.map(renderSeat)}</div>}
           <div
             className="relative flex items-center justify-center shrink-0"
             style={{
-              minWidth: 'min(180px, 42vw)', minHeight: 80,
+              minWidth: 'min(160px, 38vw)', minHeight: 70,
               borderRadius: '999px',
-              padding: 'clamp(12px, 3vw, 24px) clamp(28px, 7vw, 64px)',
+              padding: tablePad,
               background: 'var(--surface)',
               border: '6px solid #3b1f0a',
               boxShadow: '0 0 0 1px #1a0d05, 0 0 0 3px #5c3214, 0 12px 40px rgba(0,0,0,0.6)',
@@ -886,10 +902,10 @@ export function RoomView({ roomId }: { roomId: string }) {
               )}
             </div>
           </div>
-          {seats.right.length > 0 && <div className="flex flex-col gap-2 sm:gap-7">{seats.right.map(renderSeat)}</div>}
+          {seats.right.length > 0 && <div className={`flex flex-col gap-${seatGapMob} sm:gap-${seatGap}`}>{seats.right.map(renderSeat)}</div>}
         </div>
         {seats.bottom.length > 0 && (
-          <div className="flex items-start gap-2 sm:gap-7 justify-center pt-3 sm:pt-8">{seats.bottom.map(renderSeat)}</div>
+          <div className={`flex items-start justify-center gap-${seatGapMob} sm:gap-${seatGap} pt-${seatGapMob} sm:pt-${rowPt}`}>{seats.bottom.map(renderSeat)}</div>
         )}
       </div>
 
