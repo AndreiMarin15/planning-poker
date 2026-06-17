@@ -13,7 +13,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog'
-import { Plus, X, Link2, ExternalLink, Upload, Unlink } from 'lucide-react'
+import { Plus, X, Link2, ExternalLink, Upload, Unlink, HelpCircle } from 'lucide-react'
 import Lottie from 'lottie-react'
 import { extractJiraTicket, isJiraUrl } from '@/lib/jira'
 import { AvatarPicker, DEFAULT_AVATAR } from '@/components/avatar'
@@ -98,6 +98,8 @@ export default function Home() {
   const { theme, themeId, setTheme } = useTheme()
   const [showCreate, setShowCreate] = useState(false)
   const [showJoin, setShowJoin] = useState(false)
+  const [showFaq, setShowFaq] = useState(false)
+  const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0)
 
   // Create state
   const [creatorName, setCreatorName] = useState('')
@@ -289,6 +291,24 @@ export default function Home() {
 
   const inputStyle = { backgroundColor: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.1)' }
   const inputCls = 'text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-violet-500'
+  const faqItems = [
+    {
+      question: 'How do I start a new session?',
+      answer: 'Click Create Room, choose a name, and invite others with the generated room code.',
+    },
+    {
+      question: 'Can I join without an account?',
+      answer: 'Yes — just enter the room code and your display name to join.',
+    },
+    {
+      question: 'What if I want to use Jira tickets?',
+      answer: 'Add ticket IDs or URLs in the backlog when creating a room, or connect Jira to import issues.',
+    },
+    {
+      question: 'Will the room stay online?',
+      answer: 'Rooms are temporary and may reset when the server restarts, so save any important details before leaving.',
+    },
+  ]
 
   return (
     <div
@@ -299,6 +319,100 @@ export default function Home() {
       <style>{`
         [data-pp-root] [class*="ring-violet"]:focus-visible,
         [data-pp-root] [class*="ring-violet"]:focus { --tw-ring-color: var(--accent-ring) !important; }
+
+        .faq-float {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-width: 3rem;
+          min-height: 3rem;
+          padding: 0 1rem;
+          border-radius: 9999px;
+          border: 1px solid rgba(255,255,255,0.14);
+          background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02));
+          box-shadow: 0 15px 35px rgba(0,0,0,0.22);
+          backdrop-filter: blur(18px);
+          transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease, background 180ms ease;
+        }
+
+        .faq-float:hover {
+          transform: translateY(-2px) scale(1.03);
+          border-color: rgba(129, 94, 255, 0.85);
+          box-shadow: 0 24px 48px rgba(0,0,0,0.32);
+          background: linear-gradient(180deg, rgba(124, 58, 237, 0.22), rgba(255,255,255,0.06));
+        }
+
+        .faq-float:hover svg {
+          transform: translateX(1px) scale(1.05);
+        }
+
+        .faq-float svg {
+          transition: transform 180ms ease;
+        }
+
+        .faq-item {
+          border: 1px solid rgba(255,255,255,0.08);
+          background: rgba(255,255,255,0.02);
+          border-radius: 1rem;
+          padding: 0.9rem 1rem;
+          transition: background 180ms ease, border-color 180ms ease;
+        }
+
+        .faq-item[open] {
+          background: rgba(255,255,255,0.05);
+          border-color: rgba(129,94,255,0.22);
+        }
+
+        .faq-item summary {
+          list-style: none;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.75rem;
+          color: #f8fafc;
+        }
+
+        .faq-item summary::-webkit-details-marker {
+          display: none;
+        }
+
+        .faq-item summary:hover {
+          color: #e5e7eb;
+        }
+
+        .faq-item p {
+          margin: 0.75rem 0 0;
+          color: #cbd5e1;
+          line-height: 1.7;
+        }
+
+        .faq-answer {
+          overflow: hidden;
+          max-height: 0;
+          opacity: 0;
+          transform: translateY(-4px);
+          transition: max-height 260ms ease, opacity 220ms ease, transform 260ms ease;
+          will-change: max-height, opacity, transform;
+        }
+
+        .faq-item[open] .faq-answer {
+          max-height: 10rem;
+          opacity: 1;
+          transform: translateY(0);
+        }
+
+        .faq-answer > p {
+          margin-top: 0.75rem;
+        }
+
+        .faq-item .faq-chevron {
+          transition: transform 180ms ease;
+        }
+
+        .faq-item[open] .faq-chevron {
+          transform: rotate(180deg);
+        }
 
         @keyframes mascot-enter {
           0% { opacity: 0; transform: translateX(-16px) translateY(12px); }
@@ -311,6 +425,18 @@ export default function Home() {
           100% { opacity: 0; transform: translateX(calc(100vw - 6rem)); }
         }
       `}</style>
+
+      <div className="fixed right-4 bottom-4 z-30">
+        <Button
+          onClick={() => setShowFaq(true)}
+          variant="outline"
+          size="sm"
+          className="faq-float text-zinc-100 border-transparent bg-transparent px-4 py-3 gap-2"
+        >
+          <HelpCircle className="w-4 h-4" />
+          <span className="text-sm font-semibold">FAQ</span>
+        </Button>
+      </div>
 
       <div className="mb-10 text-center space-y-4">
         <div className="flex justify-center">
@@ -609,6 +735,38 @@ export default function Home() {
       </Dialog>
 
       <p className="mt-14 text-zinc-800 text-xs">Rooms reset on server restart.</p>
+
+      <Dialog open={showFaq} onOpenChange={setShowFaq}>
+        <DialogContent className="border text-zinc-100 sm:max-w-lg"
+          style={{ backgroundColor: '#172035', borderColor: 'rgba(255,255,255,0.08)' }}>
+          <DialogHeader>
+            <DialogTitle className="text-zinc-100 text-base">Frequently Asked Questions</DialogTitle>
+            <DialogDescription className="text-zinc-500 text-sm">Helpful tips for creating and joining sessions.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-sm pt-1">
+            {faqItems.map((item, index) => {
+              const isOpen = openFaqIndex === index
+
+              return (
+                <div key={item.question} className="faq-item">
+                  <button
+                    type="button"
+                    onClick={() => setOpenFaqIndex(isOpen ? null : index)}
+                    aria-expanded={isOpen}
+                    className="w-full flex items-center justify-between gap-3 text-left"
+                  >
+                    <span className="font-semibold">{item.question}</span>
+                    <span className="faq-chevron text-zinc-400">▾</span>
+                  </button>
+                  <div className="faq-answer" style={{ maxHeight: isOpen ? '10rem' : 0, opacity: isOpen ? 1 : 0, transform: isOpen ? 'translateY(0)' : 'translateY(-4px)' }}>
+                    <p>{item.answer}</p>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <div className="fixed left-4 bottom-4 z-20 pointer-events-none">
         <div className="pointer-events-auto w-28 h-28 rounded-3xl bg-zinc-950/95 shadow-2xl shadow-black/30 backdrop-blur-sm p-2"
