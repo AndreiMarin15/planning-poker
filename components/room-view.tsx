@@ -20,7 +20,7 @@ import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
 import {
   Copy, Check, Eye, RotateCcw, LogOut, ChevronDown, Plus, X,
-  Play, Link2, ExternalLink, Download, LayoutList, History, Table2, Upload, Search,
+  Play, Link2, ExternalLink, Download, LayoutList, History, Table2, Upload, Search, Timer, Square,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { extractJiraTicket, isJiraUrl } from '@/lib/jira'
@@ -388,6 +388,45 @@ export function RoomView({ roomId }: { roomId: string }) {
     mq.addEventListener('change', handler)
     return () => mq.removeEventListener('change', handler)
   }, [])
+
+  // ── Timer UI state ────────────────────────────────────────────────────────────
+  const [showTimerPanel, setShowTimerPanel] = useState(false)
+  const [timerMinutes, setTimerMinutes] = useState(2)
+  const [timerSeconds, setTimerSeconds] = useState(0)
+  const [autoReset, setAutoReset] = useState(false)
+  const [countdown, setCountdown] = useState<number | null>(null)
+
+  useEffect(() => {
+    const t = room?.timer
+    if (!t?.startedAt) { setCountdown(null); return }
+    const tick = () => {
+      const elapsed = Math.floor((Date.now() - t.startedAt!) / 1000)
+      const remaining = t.duration - elapsed
+      setCountdown(remaining > 0 ? remaining : 0)
+    }
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [room?.timer])
+
+  const handleTimerAction = async (action: 'start' | 'stop') => {
+    if (!room) return
+    const duration = timerMinutes * 60 + timerSeconds
+    await fetch(`/api/rooms/${room.id}/timer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, duration: action === 'start' ? duration : undefined, autoReset }),
+    })
+  }
+
+  const timerRunning = !!room?.timer?.startedAt && countdown !== null && countdown > 0
+  const timerDone   = countdown === 0
+
+  const formatCountdown = (s: number) => {
+    const m = Math.floor(s / 60)
+    const sec = s % 60
+    return `${m}:${sec.toString().padStart(2, '0')}`
+  }
 
   const [copied, setCopied] = useState(false)
   const [roomGone, setRoomGone] = useState(false)
@@ -1147,7 +1186,71 @@ export function RoomView({ roomId }: { roomId: string }) {
       )} {/* end landscape ternary */}
 
       {/* Zone 2 — controls, pinned at bottom */}
-      <div className="shrink-0 w-full" style={{ borderTop: '1px solid var(--border)' }}>
+      <div className="shrink-0 w-full relative" style={{ borderTop: '1px solid var(--border)' }}>
+
+        {/* Timer floating panel — absolute above controls, does not affect table layout */}
+        {canManage && showTimerPanel && (
+          <div
+            className="absolute bottom-full left-0 right-0 z-20 mx-3 mb-2 rounded-2xl px-4 py-3 space-y-3 shadow-2xl border"
+            style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg)', boxShadow: '0 -4px 32px rgba(0,0,0,0.6)' }}
+          >
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-zinc-300 uppercase tracking-widest">Timer</p>
+              <button onClick={() => setShowTimerPanel(false)} className="text-zinc-600 hover:text-zinc-400 transition-colors">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <div className="flex items-end gap-2">
+              <div className="flex-1 flex flex-col items-center gap-1">
+                <input
+                  type="number" min={0} max={59} value={timerMinutes}
+                  onChange={(e) => setTimerMinutes(Math.max(0, Math.min(59, Number(e.target.value))))}
+                  disabled={timerRunning}
+                  className="w-full text-center text-2xl font-bold bg-white/5 border border-white/10 rounded-lg py-2 tabular-nums text-white focus:outline-none focus:ring-1 focus:ring-amber-500/50 disabled:opacity-40"
+                />
+                <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Minutes</span>
+              </div>
+              <span className="text-zinc-500 text-2xl font-bold pb-5">:</span>
+              <div className="flex-1 flex flex-col items-center gap-1">
+                <input
+                  type="number" min={0} max={59} value={timerSeconds}
+                  onChange={(e) => setTimerSeconds(Math.max(0, Math.min(59, Number(e.target.value))))}
+                  disabled={timerRunning}
+                  className="w-full text-center text-2xl font-bold bg-white/5 border border-white/10 rounded-lg py-2 tabular-nums text-white focus:outline-none focus:ring-1 focus:ring-amber-500/50 disabled:opacity-40"
+                />
+                <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Seconds</span>
+              </div>
+            </div>
+            <label className="flex items-center justify-between cursor-pointer select-none">
+              <div>
+                <p className="text-xs font-medium text-zinc-300">Time issues</p>
+                <p className="text-[10px] text-zinc-500">Restarts automatically after each voting round</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAutoReset((v) => !v)}
+                className={`relative w-10 h-6 rounded-full transition-colors ${autoReset ? 'bg-amber-500' : 'bg-white/10'}`}
+              >
+                <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-transform ${autoReset ? 'translate-x-5' : 'translate-x-1'}`} />
+              </button>
+            </label>
+            <button
+              onClick={() => handleTimerAction(timerRunning ? 'stop' : 'start')}
+              disabled={!timerRunning && timerMinutes === 0 && timerSeconds === 0}
+              className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-colors disabled:opacity-40 ${timerRunning ? 'bg-red-600/80 hover:bg-red-600 text-white' : 'bg-amber-500 hover:bg-amber-400 text-black'}`}
+            >
+              {timerRunning ? <><Square className="w-4 h-4 fill-current" /> Stop</> : <><Play className="w-4 h-4 fill-current" /> Start</>}
+            </button>
+          </div>
+        )}
+
+        {/* Countdown strip — sits at top of controls bar, visible to all */}
+        {(timerRunning || timerDone) && countdown !== null && (
+          <div className={`w-full flex items-center justify-center gap-2 py-1 text-xs font-mono font-bold ${timerDone ? 'text-red-400 bg-red-950/40' : 'text-amber-400 bg-amber-950/30'}`}>
+            <Timer className="w-3 h-3" />
+            {timerDone ? "Time's up!" : formatCountdown(countdown)}
+          </div>
+        )}
 
         {/* Story row */}
         <div className="flex flex-col gap-3 px-4 pt-5 pb-3 sm:px-3 sm:pt-3 sm:pb-2 sm:gap-2.5">
@@ -1298,6 +1401,26 @@ export function RoomView({ roomId }: { roomId: string }) {
           >
             <Link2 className="w-3.5 h-3.5" />
           </button>
+          {/* Timer button — facilitator only */}
+          {canManage && (
+            <button
+              onClick={() => setShowTimerPanel((v) => !v)}
+              title="Timer"
+              className="h-9 w-9 flex items-center justify-center rounded-md border transition-colors shrink-0 relative"
+              style={showTimerPanel
+                ? { color: 'var(--accent)', borderColor: 'var(--accent)', backgroundColor: 'var(--accent-muted)' }
+                : timerRunning
+                  ? { color: '#f59e0b', borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.1)' }
+                  : { color: '#52525b', borderColor: 'rgba(63,63,70,0.5)' }}
+            >
+              <Timer className="w-3.5 h-3.5" />
+              {timerRunning && countdown !== null && (
+                <span className="absolute -top-2 -right-2 text-[9px] font-mono font-bold text-amber-400 bg-zinc-900 px-0.5 rounded leading-none">
+                  {formatCountdown(countdown)}
+                </span>
+              )}
+            </button>
+          )}
           {/* Reveal / reset */}
           <div className="flex-1" />
           {room?.phase === 'voting' ? (
