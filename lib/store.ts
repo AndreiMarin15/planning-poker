@@ -1,5 +1,5 @@
 import { Redis } from '@upstash/redis'
-import type { Room, Participant, Topic, HistoryEntry, EmojiThrow, CardTemplate } from './types'
+import type { Room, Participant, Topic, HistoryEntry, EmojiThrow, CardTemplate, ParticipantTeam } from './types'
 
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL!,
@@ -21,11 +21,29 @@ async function saveRoom(room: Room): Promise<void> {
   await redis.set(roomKey(room.id), room, { ex: ROOM_TTL })
 }
 
+function teamAvg(pids: string[], votes: Record<string, string>): string | undefined {
+  const nums = pids.map((id) => votes[id]).filter(Boolean).map(Number).filter((n) => !isNaN(n))
+  if (nums.length === 0) return undefined
+  return (nums.reduce((a, b) => a + b, 0) / nums.length).toFixed(1)
+}
+
 function buildHistoryEntry(room: Room): HistoryEntry {
   const voteValues = Object.values(room.votes)
   const nums = voteValues.map(Number).filter((n) => !isNaN(n))
   const average = nums.length > 0 ? (nums.reduce((a, b) => a + b, 0) / nums.length).toFixed(1) : '—'
   const consensus = new Set(voteValues).size === 1 && voteValues.length > 0 ? voteValues[0] : null
+
+  const devPids = room.participants.filter((p) => p.team === 'dev').map((p) => p.id)
+  const qaPids = room.participants.filter((p) => p.team === 'qa').map((p) => p.id)
+  const devAverage = teamAvg(devPids, room.votes)
+  const qaAverage = teamAvg(qaPids, room.votes)
+
+  const participantTeams = Object.fromEntries(
+    room.participants.filter((p) => p.team).map((p) => [p.id, p.team!])
+  ) as Record<string, ParticipantTeam>
+
+  const duration = room.roundStartedAt ? Math.round((Date.now() - room.roundStartedAt) / 1000) : undefined
+
   return {
     id: crypto.randomUUID(),
     story: room.story,
@@ -34,9 +52,13 @@ function buildHistoryEntry(room: Room): HistoryEntry {
     jiraLink: room.jiraLink,
     votes: { ...room.votes },
     participantNames: Object.fromEntries(room.participants.map((p) => [p.id, p.name])),
+    participantTeams: Object.keys(participantTeams).length > 0 ? participantTeams : undefined,
     consensus,
     average,
+    devAverage,
+    qaAverage,
     completedAt: Date.now(),
+    duration,
   }
 }
 
@@ -52,10 +74,11 @@ export const store = {
     creatorAvatarStyle?: string,
     cardTemplate: CardTemplate = 'fibonacci',
     creatorRole: 'voter' | 'facilitator' = 'voter',
+    creatorTeam?: ParticipantTeam,
   ): Promise<{ room: Room; participantId: string }> {
     const roomId = randomId()
     const participantId = crypto.randomUUID()
-    const participant: Participant = { id: participantId, name: creatorName, avatarStyle: creatorAvatarStyle, role: creatorRole === 'facilitator' ? 'facilitator' : undefined }
+    const participant: Participant = { id: participantId, name: creatorName, avatarStyle: creatorAvatarStyle, role: creatorRole === 'facilitator' ? 'facilitator' : undefined, team: creatorTeam }
 
     const topics: Topic[] = initialTopics.map((t) => ({
       id: crypto.randomUUID(),
@@ -94,21 +117,23 @@ export const store = {
       moderatorId: participantId,
       cardTemplate,
       createdAt: Date.now(),
+      roundStartedAt: Date.now(),
     }
     await saveRoom(room)
     return { room, participantId }
   },
 
-  async joinRoom(roomId: string, name: string, avatarStyle?: string, role?: 'voter' | 'facilitator'): Promise<{ room: Room; participantId: string } | null> {
+  async joinRoom(roomId: string, name: string, avatarStyle?: string, role?: 'voter' | 'facilitator', team?: ParticipantTeam): Promise<{ room: Room; participantId: string } | null> {
     const room = await store.getRoom(roomId)
     if (!room) return null
     const existing = room.participants.find((p) => p.name.toLowerCase() === name.toLowerCase())
     if (existing) {
-      if (avatarStyle && avatarStyle !== existing.avatarStyle) {
+      const needsUpdate = (avatarStyle && avatarStyle !== existing.avatarStyle) || (team !== undefined && team !== existing.team)
+      if (needsUpdate) {
         const updated: Room = {
           ...room,
           participants: room.participants.map((p) =>
-            p.id === existing.id ? { ...p, avatarStyle } : p,
+            p.id === existing.id ? { ...p, ...(avatarStyle ? { avatarStyle } : {}), ...(team !== undefined ? { team } : {}) } : p,
           ),
         }
         await saveRoom(updated)
@@ -117,7 +142,7 @@ export const store = {
       return { room, participantId: existing.id }
     }
     const participantId = crypto.randomUUID()
-    const participant: Participant = { id: participantId, name, avatarStyle, role: role ?? 'voter' }
+    const participant: Participant = { id: participantId, name, avatarStyle, role: role ?? 'voter', team }
     const updated: Room = { ...room, participants: [...room.participants, participant] }
     await saveRoom(updated)
     return { room: updated, participantId }
@@ -178,6 +203,9 @@ export const store = {
       nextCurrentTopicId = undefined
     }
 
+    const resetTimer = room.timer?.autoReset
+      ? { ...room.timer, startedAt: undefined }
+      : room.timer
     const updated: Room = {
       ...room,
       phase: 'voting',
@@ -187,6 +215,8 @@ export const store = {
       jiraTicket: nextJira,
       jiraLink: nextLink,
       currentTopicId: nextCurrentTopicId,
+      roundStartedAt: Date.now(),
+      timer: resetTimer,
     }
     await saveRoom(updated)
     return updated
@@ -246,6 +276,9 @@ export const store = {
     const topic = room.topics.find((t) => t.id === topicId)
     if (!topic) return null
     // Keep topic in queue — it's only removed when votes are actually revealed
+    const resetTimer = room.timer?.autoReset
+      ? { ...room.timer, startedAt: undefined }
+      : room.timer
     const updated: Room = {
       ...room,
       story: topic.title,
@@ -255,6 +288,8 @@ export const store = {
       currentTopicId: topicId,
       phase: 'voting',
       votes: {},
+      roundStartedAt: Date.now(),
+      timer: resetTimer,
     }
     await saveRoom(updated)
     return updated
@@ -267,6 +302,21 @@ export const store = {
       ...room,
       participants: room.participants.filter((p) => p.id !== participantId),
       votes: Object.fromEntries(Object.entries(room.votes).filter(([k]) => k !== participantId)),
+    }
+    await saveRoom(updated)
+    return updated
+  },
+
+  async setTimer(roomId: string, duration: number, action: 'start' | 'stop', autoReset: boolean): Promise<Room | null> {
+    const room = await store.getRoom(roomId)
+    if (!room) return null
+    const updated: Room = {
+      ...room,
+      timer: {
+        duration,
+        startedAt: action === 'start' ? Date.now() : undefined,
+        autoReset,
+      },
     }
     await saveRoom(updated)
     return updated

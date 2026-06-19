@@ -112,6 +112,7 @@ export default function Home() {
   const [newTitle, setNewTitle] = useState('')
   const [cardTemplate, setCardTemplate] = useState<CardTemplate>('fibonacci')
   const [creatorRole, setCreatorRole] = useState<'voter' | 'facilitator'>('voter')
+  const [creatorTeam, setCreatorTeam] = useState<'dev' | 'qa' | undefined>(undefined)
   const [showJiraPicker, setShowJiraPicker] = useState(false)
   const [jiraBaseUrl, setJiraBaseUrl] = useState('')
   const importRef = useRef<HTMLInputElement>(null)
@@ -228,6 +229,7 @@ export default function Home() {
           creatorAvatarStyle: creatorAvatar,
           cardTemplate,
           creatorRole,
+          creatorTeam,
           initialTopics: topics.map((t) => ({
             title: t.title,
             description: t.description || undefined,
@@ -544,6 +546,35 @@ export default function Home() {
                       <span className="text-[10px]" style={{ color: creatorRole === r ? '#a1a1aa' : '#71717a' }}>
                         {r === 'voter' ? 'Participates in voting' : 'Manages session, no vote'}
                       </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-[11px] font-semibold text-zinc-500 uppercase tracking-widest">
+                  Your team <span className="text-zinc-700 normal-case font-normal tracking-normal">(opt.)</span>
+                </Label>
+                <div className="flex gap-2">
+                  {([
+                    { id: 'dev' as const, label: 'Developer', emoji: '💻', desc: 'Dev estimate' },
+                    { id: 'qa' as const, label: 'QA', emoji: '🧪', desc: 'QA estimate' },
+                  ]).map(({ id, label, emoji, desc }) => (
+                    <button
+                      key={id}
+                      onClick={() => setCreatorTeam(creatorTeam === id ? undefined : id)}
+                      className={cn(
+                        'flex-1 flex flex-col gap-0.5 px-3 py-2 rounded-xl border text-left transition-all',
+                        creatorTeam === id ? 'border-zinc-700/50' : 'border-zinc-700/50 bg-zinc-800/30 hover:border-zinc-600/60',
+                      )}
+                      style={creatorTeam === id
+                        ? { borderLeftColor: 'var(--accent)', borderLeftWidth: 3, backgroundColor: 'rgba(255,255,255,0.05)' }
+                        : {}}
+                    >
+                      <span className="text-xs font-semibold" style={{ color: creatorTeam === id ? '#ffffff' : '#d4d4d8' }}>
+                        {emoji} {label}
+                      </span>
+                      <span className="text-[10px]" style={{ color: creatorTeam === id ? '#a1a1aa' : '#71717a' }}>{desc}</span>
                     </button>
                   ))}
                 </div>

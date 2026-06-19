@@ -1,10 +1,18 @@
 export type ParticipantRole = 'voter' | 'facilitator'
+export type ParticipantTeam = 'dev' | 'qa'
 
 export interface Participant {
   id: string
   name: string
   avatarStyle?: string
   role?: ParticipantRole
+  team?: ParticipantTeam
+}
+
+export interface RoomTimer {
+  duration: number    // seconds configured
+  startedAt?: number  // epoch ms when started; undefined = not running
+  autoReset: boolean
 }
 
 export interface Topic {
@@ -23,9 +31,13 @@ export interface HistoryEntry {
   jiraLink?: string
   votes: Record<string, string>
   participantNames: Record<string, string>
+  participantTeams?: Record<string, ParticipantTeam>
   consensus: string | null
   average: string
+  devAverage?: string
+  qaAverage?: string
   completedAt: number
+  duration?: number  // seconds from round start to reveal
 }
 
 export type CardTemplate = 'fibonacci' | 'tshirt'
@@ -46,6 +58,8 @@ export interface Room {
   moderatorId: string
   cardTemplate: CardTemplate
   createdAt: number
+  roundStartedAt?: number
+  timer?: RoomTimer
 }
 
 export interface EmojiThrow {

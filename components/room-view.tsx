@@ -1,10 +1,9 @@
 'use client'
 
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import Ably from 'ably'
-import { motion, AnimatePresence } from 'framer-motion'
 import { useRouter } from 'next/navigation'
-import type { Room, Participant, HistoryEntry, EmojiThrow, Topic } from '@/lib/types'
+import type { Room, Participant, HistoryEntry, EmojiThrow, Topic, ParticipantTeam } from '@/lib/types'
 import { CARD_VALUES, THROW_EMOJIS } from '@/lib/types'
 import EmojiPicker, { type EmojiClickData, Theme } from 'emoji-picker-react'
 import { PokerCard } from './poker-card'
@@ -74,15 +73,15 @@ function distributeSeats(ps: Participant[]) {
   if (n <= 6) {
     return { top: ps.slice(0, 3), left: [], right: [], bottom: ps.slice(3) }
   }
-  // For 7+ people: cap sides at 2 each so extras go to top/bottom (rounder oval shape)
-  const maxPerSide = 2
+  // Keep sides small so the longer top/bottom edges get more seats (matches 2.4:1 table ratio)
+  const maxPerSide = n >= 18 ? 4 : n >= 12 ? 3 : 2
   const sideCount = Math.min(n - 6, maxPerSide * 2)
   const tbCount = n - sideCount
   const topCount = Math.ceil(tbCount / 2)
   const top = ps.slice(0, topCount)
   const mid = ps.slice(topCount, topCount + sideCount)
   const bottom = ps.slice(topCount + sideCount)
-  const lc = Math.floor(sideCount / 2)  // split evenly; odd extra goes to right
+  const lc = Math.floor(sideCount / 2)
   return { top, left: mid.slice(0, lc), right: mid.slice(lc), bottom }
 }
 
@@ -96,18 +95,32 @@ const VOTED_STYLE: React.CSSProperties = {
   ].join(', '),
 }
 
+type CardSize = 'normal' | 'compact' | 'xs'
+
 function TableCard({
-  pid, name, avatarStyle, voted, revealed, value, isMe, isFacilitator, canThrow, lastEmoji, onThrow,
+  pid, name, avatarStyle, voted, revealed, value, isMe, isFacilitator, canThrow, lastEmoji, onThrow, cardSize = 'normal',
 }: {
   pid: string; name: string; avatarStyle?: string; voted: boolean; revealed: boolean
   value?: string; isMe: boolean; isFacilitator?: boolean; canThrow: boolean; lastEmoji: string | null
-  onThrow?: (emoji: string) => void
+  onThrow?: (emoji: string) => void; cardSize?: CardSize
 }) {
   const [hovered, setHovered] = useState(false)
+  const cardDims = cardSize === 'xs'
+    ? 'w-5 h-7 sm:w-8 sm:h-11 rounded-md sm:rounded-lg'
+    : cardSize === 'compact'
+    ? 'w-6 h-8 sm:w-9 sm:h-[3rem] rounded-md sm:rounded-xl'
+    : 'w-7 h-9 sm:w-11 sm:h-[3.75rem] rounded-lg sm:rounded-xl'
+  const nameSize = cardSize === 'xs'
+    ? 'text-[7px] sm:text-[9px] max-w-[2.5rem]'
+    : cardSize === 'compact'
+    ? 'text-[8px] sm:text-[10px] max-w-[3rem]'
+    : 'text-[9px] sm:text-[11px] max-w-[3.5rem]'
+  const avatarSz = cardSize === 'xs' ? 12 : cardSize === 'compact' ? 15 : 18
+  const valueSize = cardSize === 'xs' ? 'text-xs sm:text-base' : cardSize === 'compact' ? 'text-sm sm:text-lg' : 'text-sm sm:text-xl'
   return (
     <div
       data-pid={pid}
-      className="relative flex flex-col items-center gap-1 sm:gap-2"
+      className="relative flex flex-col items-center gap-0.5 sm:gap-1"
       onMouseEnter={() => { if (canThrow) setHovered(true) }}
       onMouseLeave={() => setHovered(false)}
     >
@@ -144,14 +157,14 @@ function TableCard({
         </div>
       )}
       {isFacilitator ? (
-        <div className="w-7 h-9 sm:w-11 sm:h-[3.75rem] rounded-lg sm:rounded-xl border border-zinc-700/30 flex items-center justify-center"
+        <div className={cn(cardDims, 'border border-zinc-700/30 flex items-center justify-center')}
           style={{ backgroundColor: 'rgba(82,82,91,0.15)' }}>
-          <span className="text-xs sm:text-lg leading-none">👀</span>
+          <span className="text-xs sm:text-base leading-none">👀</span>
         </div>
       ) : (
         <div
           className={cn(
-            'w-7 h-9 sm:w-11 sm:h-[3.75rem] rounded-lg sm:rounded-xl border relative overflow-hidden transition-all duration-300',
+            cardDims, 'border relative overflow-hidden transition-all duration-300',
             !voted && !revealed && 'border-zinc-600/30',
             voted && !revealed && 'border-blue-400/20',
             revealed && 'border-slate-500/30',
@@ -160,14 +173,14 @@ function TableCard({
         >
           {revealed && (
             <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-white font-bold text-sm sm:text-xl tabular-nums leading-none">{value ?? '—'}</span>
+              <span className={cn('text-white font-bold tabular-nums leading-none', valueSize)}>{value ?? '—'}</span>
             </div>
           )}
         </div>
       )}
       <div className="flex flex-col items-center gap-0.5">
-        <AvatarImg name={name} style={avatarStyle} size={18} isMe={isMe} />
-        <span className="text-[9px] sm:text-[11px] font-semibold leading-none max-w-[3.5rem] truncate text-center" style={isMe ? { color: 'var(--accent)' } : { color: '#d4d4d8' }}>
+        <AvatarImg name={name} style={avatarStyle} size={avatarSz} isMe={isMe} />
+        <span className={cn('font-semibold leading-none truncate text-center', nameSize)} style={isMe ? { color: 'var(--accent)' } : { color: '#d4d4d8' }}>
           {name}
         </span>
       </div>
@@ -264,36 +277,72 @@ function JiraBadge({ ticket, link }: { ticket: string; link?: string }) {
 
 // ── HistoryEntryRow ───────────────────────────────────────────────────────────
 
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return s > 0 ? `${m}m ${s}s` : `${m}m`
+}
+
 function HistoryEntryRow({ entry }: { entry: HistoryEntry }) {
   const [expanded, setExpanded] = useState(false)
+  const hasTeamBreakdown = !!(entry.devAverage || entry.qaAverage)
   return (
     <div style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }} className="last:border-0">
       <button
         onClick={() => setExpanded((v) => !v)}
-        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-white/[0.02] transition-colors"
+        className="w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-white/[0.02] transition-colors"
       >
-        {entry.jiraTicket && <JiraBadge ticket={entry.jiraTicket} link={entry.jiraLink} />}
-        <span className="text-sm text-zinc-400 flex-1 truncate min-w-0">{entry.story || 'Untitled'}</span>
-        <div className="flex items-center gap-2 shrink-0">
+        {entry.jiraTicket && <span className="mt-0.5 shrink-0"><JiraBadge ticket={entry.jiraTicket} link={entry.jiraLink} /></span>}
+        <span className={cn('text-sm text-zinc-400 flex-1 min-w-0 leading-snug', expanded ? 'break-words' : 'line-clamp-2')}>{entry.story || 'Untitled'}</span>
+        <div className="flex flex-col items-end gap-0.5 shrink-0 pt-0.5">
           {entry.consensus ? (
             <span className="text-emerald-400 text-sm font-bold tabular-nums">{entry.consensus}</span>
           ) : (
             <span className="text-zinc-500 text-xs tabular-nums">avg {entry.average}</span>
           )}
-          <ChevronDown className={cn('w-3 h-3 text-zinc-700 transition-transform', expanded && 'rotate-180')} />
+          <div className="flex items-center gap-1.5">
+            {entry.duration !== undefined && (
+              <span className="text-zinc-700 text-[10px] tabular-nums">{formatDuration(entry.duration)}</span>
+            )}
+            <ChevronDown className={cn('w-3 h-3 text-zinc-700 transition-transform', expanded && 'rotate-180')} />
+          </div>
         </div>
       </button>
       {expanded && (
         <div className="px-4 pb-3 space-y-2.5">
           {entry.description && <JiraText text={entry.description} />}
+          {hasTeamBreakdown && (
+            <div className="flex gap-3 flex-wrap">
+              {entry.devAverage && (
+                <span className="text-[11px] text-zinc-400 px-2 py-1 rounded-md" style={{ backgroundColor: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.2)' }}>
+                  Dev avg <span className="text-blue-300 font-semibold ml-1 tabular-nums">{entry.devAverage}</span>
+                </span>
+              )}
+              {entry.qaAverage && (
+                <span className="text-[11px] text-zinc-400 px-2 py-1 rounded-md" style={{ backgroundColor: 'rgba(168,85,247,0.12)', border: '1px solid rgba(168,85,247,0.2)' }}>
+                  QA avg <span className="text-purple-300 font-semibold ml-1 tabular-nums">{entry.qaAverage}</span>
+                </span>
+              )}
+              {entry.devAverage && entry.qaAverage && (
+                <span className="text-[11px] text-zinc-400 px-2 py-1 rounded-md" style={{ backgroundColor: 'rgba(52,211,153,0.10)', border: '1px solid rgba(52,211,153,0.2)' }}>
+                  Combined <span className="text-emerald-300 font-semibold ml-1 tabular-nums">{(parseFloat(entry.devAverage) + parseFloat(entry.qaAverage)).toFixed(1)}</span>
+                </span>
+              )}
+            </div>
+          )}
           <div className="flex flex-wrap gap-1.5">
-            {Object.entries(entry.votes).map(([pid, vote]) => (
-              <span key={pid} className="text-[11px] text-zinc-500 px-2 py-1 rounded-md"
-                style={{ backgroundColor: 'rgba(255,255,255,0.05)' }}>
-                {entry.participantNames[pid] ?? 'Unknown'}
-                <span className="text-zinc-200 font-semibold ml-1.5 tabular-nums">{vote}</span>
-              </span>
-            ))}
+            {Object.entries(entry.votes).map(([pid, vote]) => {
+              const team = entry.participantTeams?.[pid]
+              return (
+                <span key={pid} className="text-[11px] text-zinc-500 px-2 py-1 rounded-md flex items-center gap-1"
+                  style={{ backgroundColor: 'rgba(255,255,255,0.05)' }}>
+                  {team && <span className={cn('text-[9px] font-bold px-1 rounded uppercase tracking-wide', team === 'dev' ? 'text-blue-400' : 'text-purple-400')}>{team}</span>}
+                  {entry.participantNames[pid] ?? 'Unknown'}
+                  <span className="text-zinc-200 font-semibold ml-0.5 tabular-nums">{vote}</span>
+                </span>
+              )
+            })}
           </div>
         </div>
       )}
@@ -324,7 +373,22 @@ export function RoomView({ roomId }: { roomId: string }) {
   const [joinName, setJoinName] = useState('')
   const [joinAvatar, setJoinAvatar] = useState<AvatarStyleId>(DEFAULT_AVATAR)
   const [joinRole, setJoinRole] = useState<'voter' | 'facilitator'>('voter')
+  const [joinTeam, setJoinTeam] = useState<ParticipantTeam | undefined>(undefined)
   const [joining, setJoining] = useState(false)
+
+  // Sidebar drag-resize
+  const [sidebarWidth, setSidebarWidth] = useState(288)
+  const sidebarDragRef = useRef(false)
+
+  const [isMobile, setIsMobile] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 639px)')
+    setIsMobile(mq.matches)
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [])
+
   const [copied, setCopied] = useState(false)
   const [roomGone, setRoomGone] = useState(false)
 
@@ -402,6 +466,20 @@ export function RoomView({ roomId }: { roomId: string }) {
   const [lastEmoji, setLastEmoji] = useState<string | null>(() =>
     typeof localStorage !== 'undefined' ? localStorage.getItem('pp_last_emoji') : null
   )
+
+  // Sidebar drag resize
+  useEffect(() => {
+    function onMove(e: MouseEvent) {
+      if (!sidebarDragRef.current) return
+      const w = window.innerWidth - e.clientX
+      setSidebarWidth(Math.max(220, Math.min(640, w)))
+    }
+    function onUp() { sidebarDragRef.current = false }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+  }, [])
+
 
   // Story details toggle (jira url + description collapsed by default)
   const [showStoryDetails, setShowStoryDetails] = useState(false)
@@ -483,7 +561,7 @@ export function RoomView({ roomId }: { roomId: string }) {
 
   // ── Room update handler (shared by Ably and polling) ─────────────────────────
 
-  const applyRoomUpdate = useCallback((data: Room, pid: string | null) => {
+  const applyRoomUpdate = useCallback((data: Room, _pid: string | null) => {
     setRoom(data)
     setRoomGone(false)
     if (!storyFocusedRef.current) {
@@ -592,7 +670,7 @@ export function RoomView({ roomId }: { roomId: string }) {
     try {
       const res = await fetch(`/api/rooms/${roomId}/join`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: joinName.trim(), avatarStyle: joinAvatar, role: joinRole }),
+        body: JSON.stringify({ name: joinName.trim(), avatarStyle: joinAvatar, role: joinRole, team: joinTeam }),
       })
       if (!res.ok) { toast.error('Room not found'); router.push('/'); return }
       const { participantId: pid, room: r } = await res.json()
@@ -810,7 +888,23 @@ export function RoomView({ roomId }: { roomId: string }) {
     ? room.participants.map((p) => room.votes[p.id]).filter(Boolean)
     : []
   const consensus = calcConsensus(revealedVotes)
+
+  const devVotes = room?.phase === 'revealed'
+    ? room.participants.filter(p => p.team === 'dev').map(p => room.votes[p.id]).filter(Boolean)
+    : []
+  const qaVotes = room?.phase === 'revealed'
+    ? room.participants.filter(p => p.team === 'qa').map(p => room.votes[p.id]).filter(Boolean)
+    : []
+  const devAvg = devVotes.length > 0 ? calcAverage(devVotes) : null
+  const qaAvg  = qaVotes.length  > 0 ? calcAverage(qaVotes)  : null
+  const combinedAvg = devAvg && qaAvg
+    ? (parseFloat(devAvg) + parseFloat(qaAvg)).toFixed(1)
+    : null
+  const hasTeamBreakdown = devAvg !== null || qaAvg !== null
   const seats = room ? distributeSeats(room.participants) : { top: [], left: [], right: [], bottom: [] }
+
+  const participantCount = room?.participants.length ?? 0
+  const cardSize: CardSize = participantCount >= 14 ? 'xs' : participantCount >= 10 ? 'compact' : 'normal'
 
   const renderSeat = (p: Participant) => (
     <TableCard
@@ -821,6 +915,7 @@ export function RoomView({ roomId }: { roomId: string }) {
       canThrow={!!participantId && p.id !== participantId}
       lastEmoji={lastEmoji}
       onThrow={(emoji) => handleThrowOrPicker(p, emoji)}
+      cardSize={cardSize}
     />
   )
 
@@ -852,67 +947,204 @@ export function RoomView({ roomId }: { roomId: string }) {
   // Two-zone layout: flex-1 table area (centered) + shrink-0 controls bar
 
   const n = room?.participants.length ?? 0
-  const seatGap    = n >= 9 ? 6  : n >= 7 ? 6  : 7   // Tailwind gap scale (desktop)
-  const seatGapMob = n >= 9 ? 2  : n >= 7 ? 2  : 2   // mobile
-  const tableGap    = n >= 9 ? 5  : n >= 7 ? 6  : 8
-  const tableGapMob = n >= 9 ? 2  : n >= 7 ? 2  : 2
-  const rowPb = n >= 9 ? 3 : n >= 7 ? 4 : 8
-  const rowPt = n >= 9 ? 3 : n >= 7 ? 4 : 8
-  const tablePad = n >= 9
-    ? 'clamp(10px, 2.5vw, 20px) clamp(22px, 5.5vw, 52px)'
-    : n >= 7
-      ? 'clamp(11px, 2.8vw, 22px) clamp(24px, 6vw, 56px)'
-      : 'clamp(12px, 3vw, 24px) clamp(28px, 7vw, 64px)'
+  // Gap between individual seat cards
+  const seatGap    = n >= 14 ? 5 : n >= 9 ? 6 : n >= 7 ? 7 : 8
+  const seatGapMob = n >= 14 ? 3 : 4
+  // Gap between side columns and the center column
+  const tableGap    = n >= 9 ? 4 : n >= 7 ? 5 : 7
+  const tableGapMob = 3
+  // Padding between top/bottom seat rows and the oval
+  const rowPad = n >= 12 ? 'pb-3 sm:pb-6' : 'pb-2 sm:pb-5'
+  const rowPadB = n >= 12 ? 'pt-3 sm:pt-6' : 'pt-2 sm:pt-5'
+  // Oval size scales with participant count
+  const ovalWidth    = n <= 4 ? '38%' : n <= 6 ? '50%' : n <= 8 ? '62%' : n <= 10 ? '72%' : n <= 14 ? '82%' : n <= 18 ? '90%' : '96%'
+  const ovalMaxH     = n <= 4 ? '28vh' : n <= 6 ? '34vh' : n <= 8 ? '38vh' : n <= 10 ? '42vh' : n <= 14 ? '46vh' : '50vh'
 
   const tablePaneContent = (
     <>
-      {/* Zone 1 — table, fills all available height */}
-      <div className="flex-1 min-h-0 w-full flex flex-col items-center justify-center px-2 sm:px-4">
-        {seats.top.length > 0 && (
-          <div
-            className={`flex items-end justify-center gap-${seatGapMob} sm:gap-${seatGap} pb-${seatGapMob} sm:pb-${rowPb}`}
-          >{seats.top.map(renderSeat)}</div>
-        )}
-        <div className={`flex items-center justify-center gap-${tableGapMob} sm:gap-${tableGap} w-full`}>
-          {seats.left.length > 0 && <div className={`flex flex-col gap-${seatGapMob} sm:gap-${seatGap}`}>{seats.left.map(renderSeat)}</div>}
-          <div
-            className="relative flex items-center justify-center shrink-0"
-            style={{
-              minWidth: 'min(160px, 38vw)', minHeight: 70,
-              borderRadius: '999px',
-              padding: tablePad,
-              background: 'var(--surface)',
-              border: '6px solid #3b1f0a',
-              boxShadow: '0 0 0 1px #1a0d05, 0 0 0 3px #5c3214, 0 12px 40px rgba(0,0,0,0.6)',
-            }}
-          >
-            {/* Table content */}
-            <div className="relative z-10 flex items-center justify-center">
-              {room?.phase === 'voting' ? (
-                <div className="text-center space-y-1">
-                  <p className="text-zinc-300 text-xs sm:text-sm font-medium whitespace-nowrap">Voting in progress</p>
-                  {votedCount > 0 && <p className="text-zinc-400/60 text-[10px] sm:text-xs tabular-nums">{votedCount}/{totalCount} voted</p>}
-                </div>
-              ) : (
-                <div className="text-center space-y-0.5 sm:space-y-1">
-                  {consensus ? (
-                    <><p className="text-emerald-400/80 text-[9px] sm:text-[11px] font-semibold uppercase tracking-widest">Consensus</p>
-                      <p className="text-white font-black text-3xl sm:text-5xl tabular-nums">{consensus}</p></>
+      {/* Zone 1 — table area */}
+      {isMobile ? (
+        /* ── Portrait layout (mobile) ──────────────────────────────────────────
+           Oval is vertical (1:2.4). seats.top/bottom become the long vertical
+           sides; seats.left/right become the short top/bottom rows.          */
+        <div className={`flex-1 min-h-0 w-full flex flex-col items-center px-8 py-3 gap-${tableGapMob}`}>
+
+          {/* Short top row (was left column) */}
+          {seats.left.length > 0 && (
+            <div className={`shrink-0 flex flex-row items-end justify-around gap-${seatGapMob} pr-2`}>
+              {seats.left.map(renderSeat)}
+            </div>
+          )}
+
+          {/* Middle: long left col (was top) + portrait oval + long right col (was bottom)
+              flex-1 min-h-0 so the oval fills remaining space without overflowing */}
+          <div className={`flex-1 min-h-0 flex flex-row items-center gap-${tableGapMob} w-full px-2`}>
+            {seats.top.length > 0 && (
+              <div
+                className={`shrink-0 flex flex-col justify-around gap-${seatGapMob} h-full`}
+              >
+                {seats.top.map(renderSeat)}
+              </div>
+            )}
+
+            {/* Portrait oval — height driven by flex parent, width from aspect-ratio */}
+            <div className="flex-1 h-full flex items-center justify-center">
+              <div
+                className="relative flex items-center justify-center"
+                style={{
+                  height: '100%',
+                  aspectRatio: '1 / 2.4',
+                  maxWidth: '100%',
+                  borderRadius: '9999px',
+                  background: 'var(--surface)',
+                  border: '6px solid #3b1f0a',
+                  boxShadow: '0 0 0 1px #1a0d05, 0 0 0 3px #5c3214, 0 12px 40px rgba(0,0,0,0.6)',
+                }}
+              >
+                <div className="relative z-10 flex items-center justify-center p-2">
+                  {room?.phase === 'voting' ? (
+                    <div className="text-center space-y-1">
+                      <p className="text-zinc-300 text-xs font-medium">Voting</p>
+                      {votedCount > 0 && <p className="text-zinc-400/60 text-[10px] tabular-nums">{votedCount}/{totalCount}</p>}
+                    </div>
                   ) : (
-                    <><p className="text-zinc-400/60 text-[9px] sm:text-[11px] font-semibold uppercase tracking-widest">Average</p>
-                      <p className="text-white font-black text-3xl sm:text-5xl tabular-nums">{calcAverage(revealedVotes)}</p>
-                      <p className="text-zinc-500 text-[10px] sm:text-xs">No consensus</p></>
+                    <div className="text-center space-y-1.5">
+                      {consensus ? (
+                        <><p className="text-emerald-400/80 text-[9px] font-semibold uppercase tracking-widest">Consensus</p>
+                          <p className="text-white font-black text-2xl tabular-nums">{consensus}</p></>
+                      ) : (
+                        <><p className="text-zinc-400/60 text-[9px] font-semibold uppercase tracking-widest">Average</p>
+                          <p className="text-white font-black text-2xl tabular-nums">{calcAverage(revealedVotes)}</p>
+                          <p className="text-zinc-500 text-[10px]">No consensus</p></>
+                      )}
+                      {hasTeamBreakdown && (
+                        <div className="mt-2 flex flex-col items-center gap-1 border-t border-white/10 pt-2">
+                          {devAvg && <p className="text-[10px] tabular-nums"><span className="text-violet-400 font-semibold">Dev</span> <span className="text-white">{devAvg}</span></p>}
+                          {qaAvg  && <p className="text-[10px] tabular-nums"><span className="text-pink-400 font-semibold">QA</span> <span className="text-white">{qaAvg}</span></p>}
+                          {combinedAvg && <p className="text-[10px] tabular-nums"><span className="text-zinc-400 font-semibold">Sum</span> <span className="text-white">{combinedAvg}</span></p>}
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
-              )}
+              </div>
+            </div>
+
+            {seats.bottom.length > 0 && (
+              <div
+                className={`shrink-0 flex flex-col justify-around gap-${seatGapMob} h-full`}
+              >
+                {seats.bottom.map(renderSeat)}
+              </div>
+            )}
+          </div>
+
+          {/* Short bottom row (was right column) */}
+          {seats.right.length > 0 && (
+            <div className={`shrink-0 flex flex-row items-start justify-around gap-${seatGapMob} pl-2`}>
+              {seats.right.map(renderSeat)}
+            </div>
+          )}
+        </div>
+      ) : (
+        /* ── Landscape layout (desktop) ──────────────────────────────────────── */
+        <div className={`flex-1 min-h-0 w-full flex items-center px-10 sm:px-20 py-6 sm:py-10 gap-${tableGap}`}>
+
+        {/* Left column — short side, height capped to oval so corners follow the curvature */}
+        {seats.left.length > 0 && (
+          <div
+            className={`shrink-0 flex flex-col justify-around gap-${seatGap}`}
+            style={{ height: ovalMaxH }}
+          >
+            {seats.left.map(renderSeat)}
+          </div>
+        )}
+
+        {/* Center column: top → oval → bottom, all share the same width */}
+        <div className="flex-1 min-w-0 flex flex-col justify-center">
+          {seats.top.length > 0 && (
+            <div className={`shrink-0 flex items-end justify-around gap-${seatGap} ${rowPad}`}>
+              {seats.top.map(renderSeat)}
+            </div>
+          )}
+
+          {/* Oval */}
+          <div className="flex items-center justify-center">
+            <div
+              className="relative flex items-center justify-center"
+              style={{
+                width: ovalWidth,
+                aspectRatio: '2.4 / 1',
+                maxHeight: `min(100%, ${ovalMaxH})`,
+                minHeight: 90,
+                borderRadius: '9999px',
+                background: 'var(--surface)',
+                border: '6px solid #3b1f0a',
+                boxShadow: '0 0 0 1px #1a0d05, 0 0 0 3px #5c3214, 0 12px 40px rgba(0,0,0,0.6)',
+              }}
+            >
+              <div className="relative z-10 flex items-center justify-center p-3">
+                {room?.phase === 'voting' ? (
+                  <div className="text-center space-y-1">
+                    <p className="text-zinc-300 text-xs sm:text-sm font-medium whitespace-nowrap">Voting in progress</p>
+                    {votedCount > 0 && <p className="text-zinc-400/60 text-[10px] sm:text-xs tabular-nums">{votedCount}/{totalCount} voted</p>}
+                  </div>
+                ) : (
+                  <div className="text-center space-y-0.5 sm:space-y-1">
+                    {consensus ? (
+                      <><p className="text-emerald-400/80 text-[9px] sm:text-[11px] font-semibold uppercase tracking-widest">Consensus</p>
+                        <p className="text-white font-black text-2xl sm:text-5xl tabular-nums">{consensus}</p></>
+                    ) : (
+                      <><p className="text-zinc-400/60 text-[9px] sm:text-[11px] font-semibold uppercase tracking-widest">Average</p>
+                        <p className="text-white font-black text-2xl sm:text-5xl tabular-nums">{calcAverage(revealedVotes)}</p>
+                        <p className="text-zinc-500 text-[10px] sm:text-xs">No consensus</p></>
+                    )}
+                    {hasTeamBreakdown && (
+                      <div className="mt-2 sm:mt-3 flex items-center justify-center gap-3 sm:gap-5 border-t border-white/10 pt-2 sm:pt-3">
+                        {devAvg && (
+                          <p className="text-[10px] sm:text-xs tabular-nums">
+                            <span className="text-violet-400 font-semibold">Dev</span>{' '}
+                            <span className="text-white font-bold">{devAvg}</span>
+                          </p>
+                        )}
+                        {qaAvg && (
+                          <p className="text-[10px] sm:text-xs tabular-nums">
+                            <span className="text-pink-400 font-semibold">QA</span>{' '}
+                            <span className="text-white font-bold">{qaAvg}</span>
+                          </p>
+                        )}
+                        {combinedAvg && (
+                          <p className="text-[10px] sm:text-xs tabular-nums">
+                            <span className="text-zinc-400 font-semibold">Sum</span>{' '}
+                            <span className="text-white font-bold">{combinedAvg}</span>
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-          {seats.right.length > 0 && <div className={`flex flex-col gap-${seatGapMob} sm:gap-${seatGap}`}>{seats.right.map(renderSeat)}</div>}
+
+          {seats.bottom.length > 0 && (
+            <div className={`shrink-0 flex items-start justify-around gap-${seatGap} ${rowPadB}`}>
+              {seats.bottom.map(renderSeat)}
+            </div>
+          )}
         </div>
-        {seats.bottom.length > 0 && (
-          <div className={`flex items-start justify-center gap-${seatGapMob} sm:gap-${seatGap} pt-${seatGapMob} sm:pt-${rowPt}`}>{seats.bottom.map(renderSeat)}</div>
+
+        {/* Right column — short side, height capped to oval so corners follow the curvature */}
+        {seats.right.length > 0 && (
+          <div
+            className={`shrink-0 flex flex-col justify-around gap-${seatGap}`}
+            style={{ height: ovalMaxH }}
+          >
+            {seats.right.map(renderSeat)}
+          </div>
         )}
       </div>
+      )} {/* end landscape ternary */}
 
       {/* Zone 2 — controls, pinned at bottom */}
       <div className="shrink-0 w-full" style={{ borderTop: '1px solid var(--border)' }}>
@@ -1281,6 +1513,33 @@ export function RoomView({ roomId }: { roomId: string }) {
                 ))}
               </div>
             </div>
+            <div className="space-y-1.5">
+              <Label className="text-[11px] font-semibold text-zinc-500 uppercase tracking-widest">
+                Team <span className="text-zinc-700 normal-case font-normal tracking-normal">(opt.)</span>
+              </Label>
+              <div className="flex gap-2">
+                {([
+                  { id: 'dev' as const, label: 'Developer', emoji: '💻', desc: 'Dev estimate' },
+                  { id: 'qa' as const, label: 'QA', emoji: '🧪', desc: 'QA estimate' },
+                ]).map(({ id, label, emoji, desc }) => (
+                  <button
+                    key={id}
+                    onClick={() => setJoinTeam(joinTeam === id ? undefined : id)}
+                    className={cn(
+                      'flex-1 flex flex-col items-center gap-1 py-2.5 rounded-lg border text-xs font-semibold transition-colors',
+                      joinTeam === id
+                        ? 'border-white/70 bg-white/10 text-white'
+                        : 'border-zinc-700/50 bg-white/[0.03] text-zinc-500 hover:border-zinc-600 hover:text-zinc-300',
+                    )}
+                  >
+                    <span className="text-base">{emoji}</span>
+                    <span>{label}</span>
+                    <span className="text-[10px] font-normal text-zinc-600 normal-case">{desc}</span>
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-zinc-700 text-center">Used to compute separate Dev + QA averages</p>
+            </div>
             <Button onClick={handleJoin} disabled={!joinName.trim() || joining}
               className="w-full text-white h-10 text-sm font-semibold"
               style={{ backgroundColor: 'var(--accent)' }}>
@@ -1401,9 +1660,18 @@ export function RoomView({ roomId }: { roomId: string }) {
           {tablePaneContent}
         </main>
 
+        {/* Sidebar drag handle */}
+        <div
+          className="hidden lg:block w-1 shrink-0 cursor-col-resize relative group"
+          style={{ backgroundColor: 'var(--border)' }}
+          onMouseDown={(e) => { sidebarDragRef.current = true; e.preventDefault() }}
+        >
+          <div className="absolute inset-0 group-hover:bg-violet-500/40 transition-colors" />
+        </div>
+
         <aside
-          className="hidden lg:flex w-72 xl:w-80 flex-col shrink-0 overflow-hidden"
-          style={{ borderLeft: '1px solid var(--border)', backgroundColor: 'var(--surface)' }}
+          className="hidden lg:flex flex-col shrink-0 overflow-hidden"
+          style={{ width: sidebarWidth, backgroundColor: 'var(--surface)' }}
         >
           {/* Tab strip */}
           <div className="flex shrink-0" style={{ borderBottom: '1px solid var(--border)' }}>
