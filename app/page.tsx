@@ -136,6 +136,8 @@ export default function Home() {
   const [mascotAnimation, setMascotAnimation] = useState<Record<string, any> | null>(null)
   const [mascotInitialData, setMascotInitialData] = useState<Record<string, any> | null>(null)
   const [mascotWalkingData, setMascotWalkingData] = useState<Record<string, any> | null>(null)
+  const [platformSuggestion, setPlatformSuggestion] = useState('')
+  const [suggestionOpen, setSuggestionOpen] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -165,7 +167,7 @@ export default function Home() {
   useEffect(() => {
     const timeout = mascotStage === 'walking' ? 16000 : 5000
     const timer = window.setTimeout(() => {
-      setMascotStage((prev) => prev === 'walking' ? 'initial' : 'walking')
+      setMascotStage((prev) => (prev === 'walking' ? 'initial' : 'walking'))
     }, timeout)
 
     return () => window.clearTimeout(timer)
@@ -275,6 +277,15 @@ export default function Home() {
     jira.connect()
   }
 
+  function handleSendSuggestion() {
+    const suggestion = platformSuggestion.trim()
+    if (!suggestion) return
+
+    const subject = encodeURIComponent('Planning Poker platform suggestion')
+    const body = encodeURIComponent(`Suggestion:\n${suggestion}\n\nSent from the Planning Poker FAQ.`)
+    window.location.href = `mailto:acapucion123@.com?subject=${subject}&body=${body}`
+  }
+
   async function handleJiraPickerAdd(issues: JiraSprintIssue[]) {
     setTopics((prev) => [
       ...prev,
@@ -330,15 +341,13 @@ export default function Home() {
           border-radius: 9999px;
           border: 1px solid rgba(255,255,255,0.14);
           background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02));
-          box-shadow: 0 15px 35px rgba(0,0,0,0.22);
           backdrop-filter: blur(18px);
-          transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease, background 180ms ease;
+          transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
         }
 
         .faq-float:hover {
           transform: translateY(-2px) scale(1.03);
           border-color: rgba(129, 94, 255, 0.85);
-          box-shadow: 0 24px 48px rgba(0,0,0,0.32);
           background: linear-gradient(180deg, rgba(124, 58, 237, 0.22), rgba(255,255,255,0.06));
         }
 
@@ -764,18 +773,58 @@ export default function Home() {
                 </div>
               )
             })}
+            <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+              <button
+                type="button"
+                onClick={() => setSuggestionOpen((prev) => !prev)}
+                aria-expanded={suggestionOpen}
+                className="flex w-full items-center justify-between gap-3 text-left"
+              >
+                <div>
+                  <h3 className="text-sm font-semibold text-zinc-100">Any suggestions?</h3>
+                  <p className="text-xs text-zinc-500">Open this if you want to send an idea by email.</p>
+                </div>
+                <span className={`text-zinc-400 transition-transform ${suggestionOpen ? 'rotate-180' : ''}`}>▾</span>
+              </button>
+              {suggestionOpen && (
+                <div className="mt-3 space-y-3">
+                  <textarea
+                    value={platformSuggestion}
+                    onChange={(e) => setPlatformSuggestion(e.target.value)}
+                    placeholder="Add a feature idea, improvement, or workflow suggestion..."
+                    rows={4}
+                    className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 outline-none transition focus:border-[color:var(--accent-ring)] focus:ring-2 focus:ring-[color:var(--accent-ring)]/30"
+                  />
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      onClick={handleSendSuggestion}
+                      disabled={!platformSuggestion.trim()}
+                      className="text-white h-9 text-sm font-semibold"
+                      style={{ backgroundColor: 'var(--accent)' }}
+                    >
+                      Send suggestion
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </DialogContent>
       </Dialog>
 
-      <div className="fixed left-4 bottom-4 z-20 pointer-events-none">
-        <div className="pointer-events-auto w-28 h-28 rounded-3xl bg-zinc-950/95 shadow-2xl shadow-black/30 backdrop-blur-sm p-2"
+      <div
+        className="pointer-events-none fixed left-4 bottom-4 z-20"
+      >
+        <div
+          className="pointer-events-auto w-28 h-28 rounded-3xl bg-zinc-950/95 backdrop-blur-sm p-2"
           style={{
             animation: mascotStage === 'walking'
               ? 'mascot-enter 0.8s ease-out forwards, mascot-walk 16s linear 0.8s infinite'
               : 'mascot-enter 0.8s ease-out forwards',
             opacity: 0,
-          }}>
+          }}
+        >
           {mascotAnimation ? (
             <Lottie animationData={mascotAnimation} loop autoplay style={{ width: '100%', height: '100%' }} />
           ) : null}
